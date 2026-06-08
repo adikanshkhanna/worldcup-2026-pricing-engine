@@ -1,0 +1,137 @@
+Section,Methodology Note,Status
+Project Purpose,This project builds a quantitative 2026 World Cup pricing model that estimates fair probabilities for match outcomes and compares them against Kalshi market-implied probabilities.,Official
+Project Purpose,"The objective is not simply to pick winners, but to identify potential mispriced outcomes where model probability exceeds market probability.",Official
+Project Purpose,The project is framed as a finance/econ-style market-pricing model using sports event contracts as the tradable asset.,Official
+Project Purpose,model_pick identifies the most likely match outcome. best_value identifies the outcome with the highest model-versus-market edge. These can differ.,Official
+Model Version,Official launch model is v0.2.,Official
+Model Version,v0.2 is the clean base model used for official pre-match moneyline signals.,Official
+Model Version,"v0.3 exists as an experimental situational overlay using climate, altitude, venue, host, and tactical style factors.",Experimental
+Model Version,v0.3 is tracked separately and is not the official launch model because situational variables are more subjective and can create overly aggressive edge signals.,Experimental
+Model Version,"Official dashboard output should primarily reference model_inputs_v02. v0.3 should be used for research comparison, not primary signal generation.",Official
+v0.2 Inputs,"v0.2 uses Elo differential, last-5 goal differential, xG differential, and last-5 form.",Official
+v0.2 Inputs,Opta rank was excluded because it overlaps heavily with Elo and could double-count broad team strength.,Official
+v0.2 Inputs,Shots on target was not included in v0.2 raw_score because it overlaps with xG and goal differential. It may be added later after calibration.,Official
+v0.2 Inputs,"Climate, altitude, host status, venue tier, and tactical style were collected but excluded from official v0.2 output.",Official
+v0.2 Inputs,"Positive matchup-difference values generally indicate an advantage for the listed home team. In this project, home_team means listed team, not true home-field advantage.",Official
+v0.2 Formula,raw_score = (elo_diff*0.06) + (gd_last5_diff*0.15) + (xg_diff_diff*0.35) + (form_diff*0.08).,Official
+v0.2 Formula,home_strength = 1 / (1 + EXP(-raw_score)).,Official
+v0.2 Formula,home_strength represents the listed home team's share of non-draw win probability.,Official
+v0.2 Formula,draw_prob is estimated separately using matchup closeness rather than being derived directly from the home/away sigmoid split.,Official
+v0.2 Formula,home_win_prob = (1 - draw_prob) * home_strength.,Official
+v0.2 Formula,away_win_prob = (1 - draw_prob) * (1 - home_strength).,Official
+v0.2 Formula,home_win_prob + draw_prob + away_win_prob should always sum to 100%.,Official
+Draw Model,A systematic issue was identified where the model over-flagged draws as STRONG PLAYs in heavy-favorite matches.,Risk Control
+Draw Model,This occurred because the draw probability floor was too high relative to market prices in severe mismatch games.,Risk Control
+Draw Model,"Examples of suspicious draw edges include heavy favorites such as Germany, Spain, Brazil, France, or Portugal where market draw probability is extremely low.",Risk Control
+Draw Model,"A draw can still be legitimate value in balanced matchups, but heavy-favorite draws require additional review before action.",Official
+Draw Model,"draw_play_filter was added to flag suspicious draw value when best_value = Draw, market_draw is very low, and raw_score indicates a large mismatch.",Official
+Draw Model,"Current draw block logic: BLOCK DRAW when best_value = Draw, market_draw < 15%, and ABS(raw_score) > 1.5.",Official
+Draw Model,Blocked draw rows are converted to REVIEW instead of STRONG PLAY / PLAY.,Official
+Draw Model,The draw_play_filter does not change probabilities. It only changes signal classification to prevent blindly acting on likely model artifacts.,Official
+Draw Model,The draw engine is a known candidate for future calibration using historical match data and/or Poisson scoreline probabilities.,Follow-up
+Data Sources,Elo is used as the primary broad team-strength measure.,Official
+Data Sources,xG inputs are compiled from recent competitive tournament and qualifying data where available.,Official
+Data Sources,Goal differential and form are based on recent competitive results.,Official
+Data Sources,Friendlies are excluded from core competitive form calculations where possible.,Official
+Data Sources,"Some regional xG datasets are less complete than others, creating a known comparability limitation.",Limitation
+Data Sources,"When direct xG coverage is unavailable, goals-for/goals-against proxies may be used with manual notation.",Limitation
+Team Stats,team_stats is the master team-level database.,Official
+Team Stats,model_inputs_v02 pulls team-level statistics from team_stats and converts them into matchup-level difference features.,Official
+Team Stats,Historical teams not participating in the 2026 World Cup are not forced into team_stats.,Official
+Team Stats,Raw historical competition tabs are kept separate from the current 2026 prediction dataset.,Official
+Team Stats,"Team naming is standardized across tabs to avoid lookup errors. Examples include USA, IR Iran, Czechia, and Cabo Verde.",Official
+Market Odds,Kalshi is used as the primary market benchmark.,Official
+Market Odds,Raw Kalshi home/draw/away prices are normalized so the three-outcome market sums to 100%.,Official
+Market Odds,market_home = kalshi_home_raw / (kalshi_home_raw + kalshi_draw_raw + kalshi_away_raw).,Official
+Market Odds,The same normalization logic is applied to market_draw and market_away.,Official
+Market Odds,Market probabilities should be updated close to kickoff because prices can move materially before the match.,Official
+Edge Calculation,edge_home = model_home_prob - market_home.,Official
+Edge Calculation,edge_draw = model_draw_prob - market_draw.,Official
+Edge Calculation,edge_away = model_away_prob - market_away.,Official
+Edge Calculation,"best_edge is the largest edge among home, draw, and away.",Official
+Edge Calculation,best_value is the outcome with the highest model-versus-market edge.,Official
+Edge Calculation,best_value can differ from model_pick because the most likely outcome is not always the best-priced outcome.,Official
+Edge Calculation,A positive edge means the model prices the outcome higher than the market. A negative edge means the model prices it lower than the market.,Official
+Signal Rules,"STRONG PLAY: best_edge >= 10%, unless blocked by review logic.",Official
+Signal Rules,"PLAY: best_edge >= 6%, unless blocked by review logic.",Official
+Signal Rules,WATCH: best_edge >= 3%.,Official
+Signal Rules,PASS: best_edge < 3%.,Official
+Signal Rules,Any best_edge >= 15% is flagged CHECK INPUTS for manual review.,Official
+Signal Rules,CHECK INPUTS does not automatically mean the play is invalid; it means the odds and team inputs should be verified before action.,Official
+Signal Rules,REVIEW is used when a row is either CHECK INPUTS or BLOCK DRAW.,Official
+Signal Rules,REVIEW rows should not be treated as automatic plays. They require manual verification before being considered actionable.,Official
+Signal Rules,"The signal hierarchy is now: REVIEW override first, then STRONG PLAY, PLAY, WATCH, PASS.",Official
+Risk Controls,review_flag = CHECK INPUTS when best_edge >= 15%.,Official
+Risk Controls,"draw_play_filter = BLOCK DRAW when best_value = Draw, market_draw < 15%, and ABS(raw_score) > 1.5.",Official
+Risk Controls,signal = REVIEW when review_flag = CHECK INPUTS or draw_play_filter = BLOCK DRAW.,Official
+Risk Controls,"This prevents the model from automatically firing on extreme edges that may result from stale odds, bad inputs, or draw-probability artifacts.",Official
+Risk Controls,Large edges are not removed from the dashboard; they are preserved but marked for review to maintain transparency.,Official
+v0.3 Overlay,"v0.3 includes climate, altitude, venue tier, host status, tactical primary style, and tactical secondary style.",Experimental
+v0.3 Overlay,v0.3 is useful for research because situational factors may reveal market inefficiencies not captured by team-quality metrics alone.,Experimental
+v0.3 Overlay,"v0.3 should not dominate the base model. If promoted later, situational_score should be capped.",Experimental
+v0.3 Overlay,"Recommended future cap: capped_situational_score = MAX(-0.75, MIN(0.75, situational_score)).",Follow-up
+v0.3 Overlay,"Until calibrated, v0.3 should be tracked side-by-side with v0.2 rather than replacing the official model.",Experimental
+O/U Model,"Over/Under 2.5 is built as a separate totals engine, not mixed into the win/draw/loss raw_score.",In Progress
+O/U Model,The O/U model lives in ou_model to avoid overcrowding model_inputs_v02.,In Progress
+O/U Model,The O/U model estimates home expected goals and away expected goals from xG_for and opponent xG_against.,In Progress
+O/U Model,home_exp_goals = (home_xg_for + away_xg_against) / 2.,In Progress
+O/U Model,away_exp_goals = (away_xg_for + home_xg_against) / 2.,In Progress
+O/U Model,total_exp_goals = home_exp_goals + away_exp_goals.,In Progress
+O/U Model,Under 2.5 probability is calculated using a Poisson distribution: P(0 goals) + P(1 goal) + P(2 goals).,In Progress
+O/U Model,Over 2.5 probability = 1 - Under 2.5 probability.,In Progress
+O/U Model,O/U market probabilities are normalized separately from the moneyline market using over_raw and under_raw.,In Progress
+O/U Model,O/U signals should use the same conservative edge thresholds as moneyline unless later calibration supports different thresholds.,In Progress
+Output Dashboard,model_output is the clean final dashboard used for daily decision-making.,Official
+Output Dashboard,model_output pulls from model_inputs_v02 for official moneyline signals.,Official
+Output Dashboard,"model_output includes model probabilities, market probabilities, edges, best_value, best_edge, signal, review_flag, draw_play_filter, and model_pick.",Official
+Output Dashboard,"Signal colors are used for visual triage: STRONG PLAY, PLAY, WATCH, PASS, and REVIEW.",Official
+Output Dashboard,model_output may also include O/U outputs once ou_model is completed.,In Progress
+Freezing Process,"Before kickoff, official model tabs should be duplicated and pasted as values only.",Action Item
+Freezing Process,Recommended frozen tabs: model_inputs_v02_FROZEN_0611 and model_output_FROZEN_0611.,Action Item
+Freezing Process,Freezing preserves the exact pre-match model outputs and prevents accidental retroactive changes.,Action Item
+Freezing Process,Frozen tabs should be created after final Kalshi prices are entered and before the match begins.,Action Item
+Results Tracking,A results_tracker tab should record actual match outcomes after games finish.,Action Item
+Results Tracking,"results_tracker should compare model_pick, best_value, signal, actual_result, and whether the best_value hit.",Action Item
+Results Tracking,"After enough matches, performance should be evaluated using hit rate, calibration, and edge performance by signal tier.",Follow-up
+Results Tracking,Performance should be evaluated separately for model_pick accuracy and best_value market-edge performance.,Follow-up
+Results Tracking,Draw recommendations should be reviewed separately because draw probabilities are the most fragile part of the current model.,Follow-up
+Limitations,"v0.2 is a hand-weighted scorecard model, not a fully trained machine-learning model.",Limitation
+Limitations,Weights should not be aggressively re-tuned after individual match results.,Limitation
+Limitations,"Model calibration should be assessed after a meaningful sample, ideally at least 20 matches.",Limitation
+Limitations,xG availability varies across confederations and competitions.,Limitation
+Limitations,"Goal differential is not fully opponent-adjusted, so teams with weak qualifying schedules may look artificially strong.",Limitation
+Limitations,Draw probabilities are currently heuristic and should be calibrated against historical data or replaced with a stronger Poisson scoreline model later.,Limitation
+Limitations,"Market prices can move before kickoff, so final signals should use the latest available Kalshi prices.",Limitation
+Limitations,"Any row marked REVIEW should be interpreted as requiring manual verification, not as a final trading recommendation.",Limitation
+GitHub / Portfolio,"A public GitHub repository will be created to document the model structure, methodology, sample outputs, screenshots, and future backtesting work.",Portfolio
+GitHub / Portfolio,Recommended repository name: world-cup-market-pricing-model.,Portfolio
+GitHub / Portfolio,"The GitHub repository should frame the project as a market-pricing model, not just a soccer prediction model.",Portfolio
+GitHub / Portfolio,"Core repository files should include README.md, methodology.md, data_dictionary.md, sample_model_output.csv, and screenshots of the dashboard.",Portfolio
+GitHub / Portfolio,"The README should emphasize fair probability estimation, Kalshi market-implied probabilities, edge calculation, risk controls, and live performance tracking.",Portfolio
+Backtesting Plan,"Backtesting will be used as a credibility layer, but the official evaluation will prioritize live forward testing using frozen pre-match outputs.",Backtest
+Backtesting Plan,Initial backtesting should be a basic historical sanity check rather than a fully optimized machine-learning backtest.,Backtest
+Backtesting Plan,The first backtest should test whether higher model probabilities generally aligned with actual outcomes in prior tournaments such as the 2022 World Cup.,Backtest
+Backtesting Plan,Backtesting should evaluate model_pick accuracy separately from best_value edge performance.,Backtest
+Backtesting Plan,"Historical market-edge backtesting requires reliable historical betting or event-contract prices. If those are unavailable, historical market-edge claims should not be overstated.",Limitation
+Backtesting Plan,"Without historical market odds, the model can be backtested for prediction quality, but not true market mispricing performance.",Limitation
+Forward Testing,The primary validation method is live forward testing during the 2026 World Cup.,Official
+Forward Testing,"Before each match, final Kalshi prices should be entered, model_outputs should be checked, and frozen outputs should be preserved before kickoff.",Official
+Forward Testing,"After each match, actual_result and ou_result should be recorded in results_tracker.",Official
+Forward Testing,Forward testing is preferred because it avoids look-ahead bias and preserves real pre-match decision conditions.,Official
+Frozen Outputs,Frozen tabs provide proof of what the model said before matches occurred.,Official
+Frozen Outputs,"Core frozen tabs: model_outputs_FROZEN_0611, daily_odds_FROZEN_0611, model_inputs_v02_FROZEN_0611, and ou_model_FROZEN_0611.",Official
+Frozen Outputs,Frozen tabs should be duplicated and pasted as values only after final odds are entered and before kickoff.,Official
+Frozen Outputs,Frozen outputs protect against accidental retroactive formula changes or data updates.,Official
+Results Tracker,results_tracker is the live performance ledger for the project.,Official
+Results Tracker,"results_tracker should record model_pick, best_value, signal, model probabilities, market probabilities, O/U signal, actual_result, ou_result, and hit/miss outcomes.",Official
+Results Tracker,Moneyline performance should track model_pick_hit and best_value_hit separately.,Official
+Results Tracker,O/U performance should track whether ou_best_value hit based on the relevant O/U line.,Official
+Evaluation Metrics,"Initial evaluation metrics should include model_pick accuracy, best_value hit rate, signal-tier performance, draw recommendation performance, and O/U hit rate.",Follow-up
+Evaluation Metrics,Calibration should be evaluated after a meaningful sample by grouping predictions into probability buckets.,Follow-up
+Evaluation Metrics,"Example calibration buckets: 40-50%, 50-60%, 60-70%, 70-80%, and 80%+.",Follow-up
+Evaluation Metrics,Draw recommendations should be evaluated separately because draw probability is the most fragile part of the current model.,Follow-up
+Evaluation Metrics,REVIEW rows should be analyzed separately from official PLAY and STRONG PLAY rows.,Follow-up
+Recruiting Framing,This project should be described as a quantitative market-pricing model for event contracts.,Portfolio
+Recruiting Framing,Suggested resume framing: Built a probability-based World Cup pricing model comparing internally estimated fair odds against Kalshi event-contract prices to identify potential mispricings.,Portfolio
+Recruiting Framing,The strongest finance angle is the comparison between fair value probability and market-implied probability.,Portfolio
+Recruiting Framing,"The project demonstrates probability modeling, data cleaning, market pricing, risk controls, performance tracking, and investment-style decision rules.",Portfolio

@@ -81,7 +81,7 @@ Planned additions: logistic regression weight optimizer, XGBoost ensemble, dynam
 
 Live forward-test results for WC2026 group stage:
 
-[Live Results Sheet](YOUR_GOOGLE_SHEET_LINK_HERE) | [Model Outputs CSV](WC%20Team%20Data%20Collection%20-%20model_outputs_groupstage.csv)
+[Live Results Sheet](https://docs.google.com/spreadsheets/d/1yc9avlxl9Q6yhSY-L9pOHyBw9OTRa8YHXEjiLBR4oBg/edit?usp=sharing) | [Model Outputs CSV](WC%20Team%20Data%20Collection%20-%20model_outputs_groupstage.csv)
 
 Columns tracked: match | predicted prob | market prob | edge | play/fade/pass | outcome | P&L (1u flat)
 

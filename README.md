@@ -2,7 +2,7 @@
 
 Quantitative pre-game probability model for 2026 FIFA World Cup group stage and knockout rounds. Targets Polymarket and Kalshi prediction markets (moneyline + over/under only).
 
-Built as independent research -- framework parallels quant finance workflows: devigging mirrors bond spread normalization, Monte Carlo sensitivity mirrors LBO scenario tables.
+Built as independent research -- framework parallels quant finance workflows: devigging mirrors bond spread normalization, *Monte Carlo sensitivity mirrors LBO scenario tables. (in progress)
 
 ---
 
@@ -12,18 +12,23 @@ Built as independent research -- framework parallels quant finance workflows: de
 
 ## 2. Factor Architecture
 
-| Factor | Signal | Cap |
-|--------|--------|-----|
-| F1 | FIFA/Elo rank gap | ±25 |
-| F2 | Goals scored/conceded differential | ±18 |
-| F3 | xG differential | ±16 |
-| F4 | Shots on target pressure | ±14 |
-| F5 | Head-to-head record (recency-weighted) | ±8 |
-| F6 | Squad depth / injury load | ±14 |
-| F7 | Form momentum (last 5) | ±10 |
-| F8 | Weather/climate mismatch | ±8 |
-| F9 | Travel fatigue + altitude stress | ±6 |
-| F10 | Tactical matchup | ±5 |
+### Production (v1.0 frozen)
+| Factor | Signal | Weight | Source |
+|--------|--------|--------|--------|
+| F1 | Opta Power Rating differential | 0.06 | Opta WC2026 |
+| F2 | Goal differential, last 5 matches | 0.15 | Kaggle martj42 |
+| F3 | xG differential (per 90, team agg) | 0.35 | Footystats regional |
+| F7 | Form points, last 5 (W=3, D=1, L=0) | 0.08 | Kaggle martj42 |
+
+### Roadmap (v1.1+ experimental)
+| Factor | Signal | Status |
+|--------|--------|--------|
+| F4 | Shots on target pressure | Excluded v1.0 (collinear with xG) |
+| F5 | H2H record, recency-weighted | Not yet implemented |
+| F6 | Squad depth / injury load | Not yet implemented |
+| F8 | Weather/climate mismatch | Built, excluded from frozen v1.0 |
+| F9 | Travel fatigue + altitude | Built, excluded from frozen v1.0 |
+| F10 | Tactical matchup | Built, excluded from frozen v1.0 |
 
 ## 3. Methodology
 
@@ -33,28 +38,22 @@ Built as independent research -- framework parallels quant finance workflows: de
 - **Thresholds:** ML play >= 4% blended gap; O/U play requires >= 4% gap AND projection >= 0.35 goals clear of line
 
 ## 4. Data Sources
-
-- Opta Power Rankings (WC2026 live strength ratings)
-- Elo Ratings -- eloratings.net historical CSVs
-- xG / shot data -- FBref via pandas read_html
-- H2H history -- Kaggle martj42/international-football-results
-- Recent form (<6 months) -- API-Football via RapidAPI free tier
+- Opta Power Rankings (team strength anchor)
+- Kaggle martj42 international results (form, GD, H2H)
+- Footystats regional qualifier data (xG per 90 by team)
+- Polymarket / Kalshi (live market prices for blending and comparison)
 
 ## 5. Backtesting
+WC2022 calibration is in-progress (notebooks/wc2022_backtest.ipynb).
+Production validation will be live forward-test from June 11, 2026
+onward — predictions locked T-1hr before each match, tracked against
+realized outcomes for accuracy and calibration.
 
-WC2022 calibration: 4/5 correct primary calls. Single miss (Japan/Spain) assessed as variance given ~8% true probability. Each match produced locked calibration rules now embedded in model.
-
-Full backtest notebook: notebooks/wc2022_backtest.ipynb (in progress)
-
-## 6. Key Calibration Rules
-
-Derived from WC2022 backtesting:
-
-- Creative hub missing vs. low block: -0.4 to expected total
-- Must-win + compromised defensive pivot: +0.25 to expected total
-- Weak opponent discount: 12% on attacking inputs when 3+ of last 5 vs rank 55+
-- Low-block underdog premium: +2 pts raw when market implied sits 8-18%
-
+## 6. Observed Patterns (Exploratory)
+Patterns flagged during model development that may warrant
+factor weights in v1.1:
+- 
+Status: not embedded in v1.0 production. Calibration candidates for v1.1.
 ## 7. File Structure
 
     worldcup-2026-pricing-engine/

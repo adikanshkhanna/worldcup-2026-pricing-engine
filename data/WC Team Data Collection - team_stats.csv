@@ -1,0 +1,49 @@
+team_id,group,elo,gd_last5 (avg),gd_12mo,xg_for (p90),xg_against (p90),xg_source,xg_diff,form_last5,form_pts,origin_climate,altitude_native,tactical_primary,tactical_secondary,is_host
+Mexico,A,81,1,1.167,1.61,0.73,Gold Cup '25,0.88,WWWDW,13,21,2200,high_press_hybrid,mid_block_compact,YES
+South Africa,A,66.1,0,0.75,1.43,0.56,CAF WC Quals (Sep 2024+),0.87,LWLWW,9,17,1753,mid_block_compact,direct_attacking,NO
+South Korea,A,76.4,3,4,1.82,0.65,AFC WC Quals (Nov 2024+),1.17,WWDDD,9,12,9,high_press_hybrid,vertical_tiki_taka,NO
+Czechia,A,73,0,0.429,1.89,1.16,WC Quals 2024-25,0.73,DDWLD,6,9,381,mid_block_compact,direct_attacking,NO
+Canada,B,74.7,1,1.667,1.28,0.7,Gold Cup '25,0.58,DWDWD,9,-2,30,mid_block_compact,direct_attacking,YES
+Bosnia and Herzegovina,B,62.9,0,1,1.72,1.2,WC Quals 2024-25,0.52,DDDWD,7,10,535,mid_block_compact,low_block_counter,NO
+Qatar,B,62,-1.5,-1,1.05,1.49,AFC WC Quals (Nov 2024+),-0.44,LDLWD,5,28,5,low_block_counter,mid_block_compact,NO
+Switzerland,B,83.8,1.5,2,1.46,0.76,WC Quals 2024-25,0.7,DWDWW,11,9,557,mid_block_compact,high_press_hybrid,NO
+Brazil,C,92.2,-1,0.5,1.27,0.94,SA WC Quals (9/24- ),0.33,LLWWD,7,25,762,positional_play,wing_play_heavy,NO
+Haiti,C,57.1,1.5,0.182,1.33,1.1,Gold Cup '25,0.23,WWLWD,10,27,29,low_block_counter,,NO
+Morocco,C,85.3,1.5,1.688,1.83,0.6,CAF WC Quals (Sep 2024+),1.23,WDWWW,13,18,204,mid_block_compact,low_block_counter,NO
+Scotland,C,73,0.5,1,1.32,1.66,WC Quals 2024-25,-0.34,WLWWW,12,8,40,high_press_hybrid,direct_attacking,NO
+USA,D,78.1,0,1.167,1.51,1.05,Gold Cup '25,0.46,LWDWW,10,12,5,high_press_hybrid,direct_attacking,YES
+Paraguay,D,75.3,0.5,0,1.04,1.06,SA Quals (9/24- ),-0.02,DWDLW,8,23,124,mid_block_compact,direct_attacking,NO
+Australia,D,78.2,2.5,1.8,0.96,1.14,AFC WC Quals (Nov 2024+),-0.18,WWWWW,15,22,9,high_press_hybrid,mid_block_compact,NO
+Turkey,D,81.8,1,0.875,1.51,1.4,WC Quals 2024-25,0.11,WWDWW,13,12,70,mid_block_compact,direct_attacking,NO
+Curaçao,E,49.5,-3,0.583,1.66,1.29,CONCACAF WC Quals 24-25,0.37,LLDWD,5,28,2,low_block_counter,mid_block_compact,NO
+Ecuador,E,85.1,0.5,0.333,1.16,0.98,SA Quals (9/24- ),0.18,WDDDD,7,18,2782,high_press_hybrid,mid_block_compact,NO
+Germany,E,89.6,4,1.571,2.01,0.72,WC Quals 2024-25,1.29,WWWWW,15,9,116,gegenpressing,positional_play,NO
+Côte d'Ivoire,E,72.6,1,1.273,1.51,0.52,CAF WC Quals (Sep 2024+),0.99,LWWDW,10,26,117,direct_attacking,mid_block_compact,NO
+Japan,F,84.3,2.5,2.4,1.62,0.6,AFC WC Quals (Nov 2024+),1.02,WWWDW,13,15,11,gegenpressing,mid_block_compact,NO
+Netherlands,F,89.6,2,2.875,2.07,0.75,WC Quals 2024-25,1.32,WDWWW,13,10,13,positional_play,high_press_hybrid,NO
+Sweden,F,71.3,1.5,-0.625,1.18,1.41,WC Quals 2024-25,-0.23,WWDLL,7,6,14,direct_attacking,mid_block_compact,NO
+Tunisia,F,70.6,0,1.455,1.7,0.94,CAF WC Quals (Sep 2024+),0.76,DDLWW,8,20,67,mid_block_compact,low_block_counter,NO
+Belgium,G,86.5,3.5,3.143,2.57,0.7,WC Quals 2024-25,1.87,WDWDW,11,10,57,direct_attacking,high_press_hybrid,NO
+Egypt,G,72.2,-0.5,0.312,1.44,0.53,CAF WC Quals (Sep 2024+),0.91,DLWWD,8,22,23,low_block_counter,mid_block_compact,NO
+IR Iran,G,79,0,1,1.89,1.11,AFC WC Quals (Nov 2024+),0.78,DDWLD,6,17,1270,low_block_counter,mid_block_compact,NO
+New Zealand,G,63.6,0.5,-0.333,,,,0,WLLLL,3,13,3,mid_block_compact,direct_attacking,NO
+Cabo Verde,H,64,-1,0.5,1.26,0.71,CAF WC Quals (Sep 2024+),0.55,DLDDW,6,25,10,low_block_counter,direct_attacking,NO
+Saudi Arabia,H,64,0,0,1.52,1.06,AFC WC Quals (Nov 2024+),0.46,LWLWW,9,27,620,low_block_counter,mid_block_compact,NO
+Spain,H,100,2,2.714,2.74,0.71,WC Quals 2024-25,2.03,DWWWW,13,15,667,positional_play,vertical_tiki_taka,NO
+Uruguay,H,84.8,1.5,1.667,1.06,1.28,SA Quals (9/24- ),-0.22,DWWLD,8,17,43,direct_attacking,mid_block_compact,NO
+France,I,98.6,3,2,2.54,0.48,WC Quals 2024-25,2.06,WWDWW,13,12,34,high_press_hybrid,positional_play,NO
+Iraq,I,66.9,0,0.5,1.1,1.3,AFC WC Quals (Nov 2024+),-0.2,WLLWW,9,23,34,mid_block_compact,mid_block_compact,NO
+Norway,I,80.1,3,4.4,2.21,0.87,WC Quals 2024-25,1.34,WWWWW,15,5,26,direct_attacking,high_press_hybrid,NO
+Senegal,I,81.7,-1,1.727,1.52,0.8,CAF WC Quals (Sep 2024+),0.72,LWWWW,12,27,10,direct_attacking,mid_block_compact,NO
+Algeria,J,75.4,-0.5,1.308,1.23,0.71,CAF WC Quals (Sep 2024+),0.52,LWWWW,12,22,727,mid_block_compact,low_block_counter,NO
+Argentina,J,98.5,1,0.667,1.3,0.77,SA Quals (9/24- ),0.53,LWDWW,10,17,25,positional_play,high_press_hybrid,NO
+Austria,J,78.6,1,2.25,1.76,0.93,WC Quals 2024-25,0.83,DWLWW,10,9,157,high_press_hybrid,gegenpressing,NO
+Jordan,J,69.5,0,0.857,1.2,1.22,AFC WC Quals (Nov 2024+),-0.02,LWWWW,12,17,777,low_block_counter,mid_block_compact,NO
+Colombia,K,90.7,3,2,1.55,1.13,SA Quals (9/24- ),0.42,WWDDD,9,18,14,high_press_hybrid,direct_attacking,NO
+DR Congo,K,70.8,0,0.818,1.25,0.86,CAF WC Quals (Sep 2024+),0.39,WLWDW,10,24,315,mid_block_compact,direct_attacking,NO
+Portugal,K,89.4,3,1.857,2.84,0.89,WC Quals 2024-25,1.95,WLDWW,10,16,9,positional_play,direct_attacking,NO
+Uzbekistan,K,73.1,1,1.4,1.78,1.09,AFC WC Quals (Nov 2024+),0.69,DWDWW,11,13,457,mid_block_compact,direct_attacking,NO
+Croatia,L,84.9,1.5,2.143,2.56,0.78,WC Quals 2024-25,1.78,WWWDW,13,13,10,mid_block_compact,possession_passive,NO
+England,L,93.1,2,2.833,2.38,0.43,WC Quals 2024-25,1.95,WWWWW,15,10,86,high_press_hybrid,direct_attacking,NO
+Ghana,L,62.9,-0.5,1,1.4,0.68,CAF WC Quals (Sep 2024+),0.72,LWWWD,10,27,61,direct_attacking,high_press_hybrid,NO
+Panama,L,71.4,2,1.417,1.79,1.06,Gold Cup '25,0.73,WWDWD,11,27,6,low_block_counter,mid_block_compact,NO

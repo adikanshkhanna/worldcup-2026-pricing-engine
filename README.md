@@ -16,8 +16,7 @@ Factor-based scoring system converting team-level inputs into fair-value win/dra
 
 Match outcomes are signaled by comparing model probabilities to devigged Kalshi market-implied probabilities; positive `model − market` gaps generate STRONG PLAY / PLAY / WATCH signals with explicit risk controls for known model weaknesses.
 
-Full methodology in [`methodology.md`](./[methodology.md](https://github.com/adikanshkhanna/worldcup-2026-pricing-engine/blob/main/data/docs/methodology.md)).
-
+Full methodology in data/docs folder.
 ---
 
 ## 2. Factor Architecture
@@ -163,7 +162,7 @@ WC2022 calibration is in progress (`notebooks/wc2022_backtest.ipynb`). Limited t
 
 ## 9. Documented Limitations
 
-Full list in [`methodology.md`](./[methodology.md#14-documented-limitations](https://github.com/adikanshkhanna/worldcup-2026-pricing-engine/blob/main/data/docs/methodology.md)). Headline items:
+Full list in methodology. Headline items:
 
 - Hand-weighted scorecard model — weights not optimized; logistic regression calibration deferred until 20+ match sample exists
 - Regional xG heterogeneity — qualifier strengths not normalized across confederations

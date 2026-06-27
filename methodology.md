@@ -575,9 +575,50 @@ The CHECK INPUTS flag (best_edge ≥ 15%) fired on 18 matches. Manual review on 
 
 ## O/U (v0.3) performance
 
-O/U pick hit rate: **46.0%** (23/50, after excluding PASS). Effectively coin-flip. The v0.3 multiplicative architecture (xG with confederation, climate, and venue adjustments) did not generate measurable predictive skill in group stage.
+O/U pick hit rate: **46.0%** (23/50). This is below coin-flip. The v0.3 model did not work in group stage and the underperformance is not explained by sample size alone — it reflects identifiable directional and structural bias.
 
-This is consistent with the broader literature finding that total-goals modeling is harder than outcome modeling because goal distributions are highly variable and tournament samples are too small to fit a stable Poisson rate. No v1.1 patches are proposed for O/U pending more data.
+### What went wrong
+
+| Metric | Value |
+|---|---|
+| Tournament avg total goals | 3.10 |
+| Matches at 2.5 line | 37 of 50 |
+| Actual over rate at 2.5 | 54.1% |
+| Model picked under at 2.5 | 22 of 37 = 59.5% |
+| Over picks hit | 9/18 = 50.0% |
+| Under picks hit | 14/32 = 43.8% |
+
+Two distinct problems:
+
+1. **Directional bias toward under.** The model picked under in 64% of its actionable recommendations, against a tournament where 54% of matches actually went over. The model's central tendency for expected goals was too low.
+
+2. **Pick selection was poor in both directions.** Even where the model picked over, it hit at only 50%. Where it picked under, it hit at 44%. This means the model isn't just biased — it's also picking the wrong matches within each direction. A purely biased model with correct match selection would still hit close to 50% in its non-biased direction.
+
+### Probable causes
+
+1. **Climate modifier too aggressive in suppressing goals.** The piecewise climate adjustment subtracts 8–20% from expected goals for non-temperate origin teams playing in adverse conditions. With most 2026 host cities in summer (US/Mexico) producing hot conditions, this modifier may have been over-applied and pushed many matches under their lines incorrectly.
+
+2. **Confederation discount on xG_against compounded with elo weighting.** The asymmetric `xg_against_adj = (xg_against/conf_scalar)*(elo/100) + xg_against*(1-elo/100)` formula was intended to model "weaker teams concede more than their raw xG_against suggests." In practice this appears to have suppressed totals further when both teams were AFC/CAF/CONCACAF, because the elo blending reduced rather than amplified the adjustment.
+
+3. **Venue penalty stacking.** The situational_modifier sums match_tactical_r and venue_penalty additively. Venue penalties range from -8% to -20%. When applied on top of tactical penalties and climate adjustments, the cumulative downward pressure on totals likely exceeded what the underlying physical conditions actually produce.
+
+4. **No tournament-context adjustment.** Group stage matches with one team needing a win to advance tend to produce more goals (more risk-taking). The model has no awareness of standings or qualification pressure.
+
+### What is salvageable
+
+The directional finding is itself a usable signal. A v1.1 baseline that simply predicts "over 2.5" on every match would have hit 54% in this sample. The v0.3 model failed to beat that null hypothesis. Until the directional and structural biases are corrected, the model is providing negative information value relative to a naive baseline.
+
+### v1.1 patches for O/U
+
+1. **Remove or sharply attenuate the climate modifier.** It is the most aggressive downward adjustment in the chain and the one with the weakest empirical support. Either remove entirely pending data, or compress the range to ±3%.
+
+2. **Replace the asymmetric xg_against blend with a simple `xg_against * (1/conf_scalar)`.** The elo-weighted version did not perform as intended and added complexity without payoff.
+
+3. **Calibrate venue_penalty against this group-stage data.** With 50+ matches across known venues, the actual goal totals per venue can be measured. Replace the hand-set penalty tiers with empirical adjustments where the sample supports it.
+
+4. **Add a baseline-comparison sanity check.** Any future O/U model should be benchmarked against "always pick over" and "always pick under" before being deployed. The v0.3 model would not have passed this check.
+
+The v0.3 architecture was overengineered for the available data. The v1.1 direction should be toward fewer adjustments calibrated against actual results, not more adjustments motivated by theory.
 
 ## Caveats and limitations
 

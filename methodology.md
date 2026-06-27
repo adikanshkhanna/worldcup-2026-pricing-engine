@@ -496,3 +496,96 @@ Backtesting is a credibility supplement, not the primary validation:
 - Opponent-adjusted goal differential
 - KO-stage O/U model recalibration (added post-group-stage once bracket is known)
 - Public results dashboard with running calibration plots and weak-schedule-bucketed performance
+
+  # v0.2 Group Stage Retrospective
+
+**Tournament**: 2026 FIFA World Cup
+**Sample**: 66 group stage matches (June 11 – June 27, 2026)
+**Model version**: v0.2 (moneyline), v0.3 (O/U)
+**Author**: Adikansh Khanna, Kareem Soliman
+
+---
+
+## Headline
+
+The v0.2 moneyline model correctly identified the most likely match outcome in **54.5% of 66 group stage matches** (36 hits). This compares to a 48.5% home-win base rate and a 33% random-pick baseline, suggesting the model adds modest but real predictive skill in outcome selection.
+
+The model is well-calibrated for predicted probabilities below 70% and systematically overconfident above 70%. The specific failure mode is heavy favorites being held to draws by defensive underdogs, not outright upsets.
+
+---
+
+## Model accuracy by predicted probability
+
+| Predicted probability of model_pick | n | Realized hit rate | Delta |
+|---|---|---|---|
+| 0–40% | 17 | 29.4% | -1.2% |
+| 40–50% | 4 | 50.0% | +3.8% |
+| 50–60% | 15 | 60.0% | +4.3% |
+| 60–70% | 20 | 70.0% | +5.4% |
+| **70–80%** | **9** | **55.6%** | **-19.2%** |
+| 80%+ | 1 | 100.0% | n/a |
+
+The 0–70% range is well-calibrated. The 70–80% range is the only bucket where the model misses materially — predicted 75% hit rate, realized 56%.
+
+## Failure mode in the 70–80% bucket
+
+Of the four misses in this bucket, all were draws (not upsets):
+
+- Switzerland (71.4%) drew Qatar
+- Spain (78.8%) drew Cabo Verde
+- Ecuador (75.8%) drew Curaçao
+- England (75.4%) drew Ghana
+
+The pattern: weaker opponents (lower confederation, lower team rating) absorb pressure, defend deep, and grind out a draw against a heavy favorite. The v0.2 model assigns these matches ~75% favorite / ~18% draw / ~7% underdog, when the empirical realization on this sample was closer to 56% favorite / 44% draw.
+
+This is a draw-suppression problem in the favorite-heavy range, not an upset problem.
+
+## Identified causes
+
+1. **Draw floor too low for asymmetric matchups.** The current draw formula `MAX(0.18, MIN(0.35, 0.30 - ABS(elo_diff)*0.003))` floors at 18% but reduces toward that floor as the rating gap grows. When the favorite is dominant, the model assumes the favorite simply wins — but in practice, defensive underdogs absorb that dominance and force draws.
+
+2. **No tactical/motivational variable for tournament context.** Teams already eliminated, teams playing for a tiebreaker, and teams parking the bus to preserve a result all play differently than their underlying ratings imply. The model has no awareness of this.
+
+3. **Host-nation labeling.** The moneyline applies a home_strength sigmoid regardless of whether the home_team in the fixture is actually a host nation. In 2026 with three hosts (USA/Canada/Mexico), this matters more than in prior tournaments where only one host existed.
+
+4. **No confederation prior on moneyline.** The conf_scalar is intentionally not applied to the moneyline (to avoid double-counting Opta Power Ratings). This is correct on principle but means CONMEBOL-vs-AFC matchups, where historical edge favors CONMEBOL beyond what Opta captures, are systematically misvalued.
+
+## v1.1 patches
+
+1. **Raise draw floor for high-rating-gap matches.** Counterintuitive but data-supported: when one team is heavily favored, draws become *more* likely (parking the bus succeeds), not less. Recommended change: invert the slope or introduce a U-shaped draw curve that floors at 22% even at extreme rating gaps.
+
+2. **Host-nation indicator variable.** Add `is_host` to team_stats. In matches where the host nation is labeled as away_team, transfer the home advantage to the away side or split it.
+
+3. **Confederation prior on moneyline.** Reintroduce a small confederation adjustment specifically for cross-confederation matchups, calibrated to subtract from Opta's bias rather than stack on it.
+
+4. **Shrinkage on heavy favorites.** As a pre-calibration patch independent of (1)-(3), apply a shrinkage factor to any model_pick probability above 70% to compress toward 65%. This is a band-aid pending the structural fixes above.
+
+## Risk-control validation
+
+The REVIEW signal (model disagrees with market by >15% on outcome with non-trivial draw probability) flagged 24 of 66 matches. Outcome breakdown:
+
+- Model_pick hit rate on REVIEW: 58.3% (14/24)
+- Market favorite won on REVIEW: 45.8% (11/24)
+
+Neither the model nor the market clearly outperformed on REVIEW matches, which is the expected behavior for high-uncertainty matches. The flag correctly identified matches where outcomes were genuinely hard to predict, validating its use as a "do not act" filter rather than a "model is wrong" filter.
+
+The BLOCK DRAW filter (active on 8 matches) prevented the model from recommending draws on lopsided matchups where the v0.2 draw floor would have generated false positives.
+
+The CHECK INPUTS flag (best_edge ≥ 15%) fired on 18 matches. Manual review on a subset confirmed that the largest edges clustered around host-nation matchups and CONMEBOL-vs-AFC matchups, validating the host and confederation issues identified above.
+
+## O/U (v0.3) performance
+
+O/U pick hit rate: **46.0%** (23/50, after excluding PASS). Effectively coin-flip. The v0.3 multiplicative architecture (xG with confederation, climate, and venue adjustments) did not generate measurable predictive skill in group stage.
+
+This is consistent with the broader literature finding that total-goals modeling is harder than outcome modeling because goal distributions are highly variable and tournament samples are too small to fit a stable Poisson rate. No v1.1 patches are proposed for O/U pending more data.
+
+## Caveats and limitations
+
+- **Sample size**: 66 matches is small. Bucket-level findings (especially the 70–80% miscalibration on n=9) are directional, not statistically significant.
+- **Forward-test only**: no historical Kalshi prices exist, so all market comparisons are against the contemporaneous 2026 closing lines. No backtest baseline.
+- **No control for confounding tournament dynamics**: motivation differences late in group stage (already-qualified teams, dead rubbers) are not modeled.
+- **Single tournament**: findings may not generalize to club football, prior WCs, or future cycles.
+
+## What this retrospective is good for
+
+This document is not a backtest validation or a P&L statement. It is a structured post-mortem of a structured prediction model, identifying specific failure modes from empirical evidence and proposing targeted patches with explicit causal hypotheses. The intent is to demonstrate that the model architecture is sound, the failure modes are diagnosable, and the patches are testable — not to claim the model is profitable or production-grade.

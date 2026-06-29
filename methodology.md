@@ -630,3 +630,97 @@ The v0.3 architecture was overengineered for the available data. The v1.1 direct
 ## What this retrospective is good for
 
 This document is not a backtest validation or a P&L statement. It is a structured post-mortem of a structured prediction model, identifying specific failure modes from empirical evidence and proposing targeted patches with explicit causal hypotheses. The intent is to demonstrate that the model architecture is sound, the failure modes are diagnosable, and the patches are testable — not to claim the model is profitable or production-grade.
+- # Knockout Market-Pricing Model v1.2 — Methodology
+
+## Purpose
+Generates fair-value "to-advance" probabilities for 2026 World Cup knockout
+matches, compared against Kalshi market-implied probabilities to identify
+mispricings. Deliberately a transparent, structured model with named features
+and disclosed limitations — not a black box.
+
+## Core model
+A regularized multinomial logistic regression (home / draw / away) fit on the
+69 graded group-stage matches.
+
+- **Features:** elo_diff, gd_diff, xg_diff (net), form_diff, host.
+- **Regularization:** L2 = 0.5, selected by 5-fold cross-validated log-loss.
+- **Fitted weights (standardized home–away contrast):** elo +2.03 (dominant),
+  xg +0.77, host +0.28, form +0.18, gd −0.59 (sign reflects mild gd/xg
+  collinearity; magnitude small). xgot was tested and added no CV value once
+  elo/gd/xg were present, so it is excluded.
+
+## Neutral-venue symmetry
+Knockout matches are played at neutral sites, so the "home" designation is only
+a listing convention. The model is trained on each match **and its mirror image**
+(negated features, swapped outcome), which forces zero home-listing bias: the
+fitted intercept contrast is ~0. The only source of venue advantage is the
+explicit `host` term for Mexico, USA, and Canada.
+
+## Draw-resilience adjustment (v1.2's one feature addition)
+The group-stage retrospective identified the model's dominant failure mode:
+heavy favorites held to **draws** by defensive underdogs (not upsets — draws).
+
+This was tested before being added. Among mismatches (rating gap above median),
+underdogs with strong defenses (low blended xGA) drew **31.6%** of the time
+versus **12.5%** for weak-defense underdogs (n=35). A logistic check confirmed
+the direction (defensive-quality coefficient −0.68, the strongest term).
+
+Implementation: P(draw) receives a modest boost, drawn from the favorite's win
+probability, scaled by (a) how far the underdog's blended xGA sits below the
+field average and (b) the size of the rating gap. The boost is small (K_DEF =
+0.16) and uses no interaction coefficient, to avoid overfitting n=35.
+
+**Blended xGA:** underdog defensive quality blends pre-tournament xg_against
+with realized tournament xGA (from the results tracker), the latter weighted
+0.40 given it is only a 3-game sample.
+
+## Advance probability
+P(advance) = P(win in 90) + P(draw in 90) × P(win shootout)
+P(win shootout) = clip(0.5 + (P_home − P_away) × 0.25, 0.40, 0.60)
+
+The shootout shrinkage reflects penalty-kick variance and goalkeeper compression.
+
+## Penalty-xG sensitivity check (robustness, not production)
+Tournament xG includes penalties (~0.79 converted xG each), which on a 3-game
+sample is noisy. As a robustness check, penalties faced were stripped from
+tournament xGA and penalties won stripped from tournament xG-for, then the model
+was refit.
+
+Result: the strip is directionally sensible (e.g. Egypt, which faced and saved a
+penalty, gains defensive credit and its advance probability improves), but the
+*magnitude* of its effect on the bracket exceeds what a 3-game, ~1–2-penalty
+sample justifies — it swung Netherlands–Morocco from 58/42 to 71/29 even though
+Morocco appears on neither penalty list, via refit knock-on effects.
+
+**Decision:** the penalty adjustment is therefore reported as a sensitivity
+check, NOT used in the production number. Production uses the un-penalty-adjusted
+fit. This is a deliberate choice not to let a small-sample correction drive
+headline prices. Most-affected prices under the strip: Morocco 42%→29%,
+Ecuador 32%→42%, Egypt 63%→68% (advance). Treat these as the model's
+sensitivity band, not as alternative point estimates.
+
+When non-penalty xG is collected directly (a data-pipeline task, not a scrape),
+this becomes a clean production feature rather than a sensitivity note.
+
+## Known limitations (disclosed)
+1. **Penalty xG.** See sensitivity check above; production deliberately excludes
+   the penalty strip pending direct non-penalty xG collection.
+2. **Small-sample defensive term.** The draw-resilience effect rests on n=35
+   mismatch observations. Its magnitude is treated as directional, not precise.
+3. **Host factor** has few in-sample knockout cases; weight kept modest.
+
+## Worked example: Netherlands vs Morocco
+Old model output Morocco ~14% to advance — indefensible given Morocco's
+comparable elo and form. v1.2 outputs Morocco ~42%, essentially level with the
+Kalshi market (~40%). Notably, the correction came almost entirely from the
+elo-anchored symmetric fit, **not** the defensive term: Morocco's blended xGA
+(~1.17, dragged up by a leaky 2.03 tournament figure) earns them little
+resilience boost. The model and market agreeing here implies no edge on Morocco
+— and flags that Morocco's high xGA is a genuine vulnerability rather than the
+defensive strength their reputation suggests.
+
+## Narrative
+Built it, shipped it, measured it, found the failure mode (favorites drawn by
+defensive underdogs), tested a fix against the data before adding it, and
+disclosed what the model still can't see. The Morocco model-vs-market agreement
+and the favorite-extremity in true mismatches are reported, not hidden.

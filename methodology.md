@@ -630,40 +630,67 @@ The v0.3 architecture was overengineered for the available data. The v1.1 direct
 ## What this retrospective is good for
 
 This document is not a backtest validation or a P&L statement. It is a structured post-mortem of a structured prediction model, identifying specific failure modes from empirical evidence and proposing targeted patches with explicit causal hypotheses. The intent is to demonstrate that the model architecture is sound, the failure modes are diagnosable, and the patches are testable — not to claim the model is profitable or production-grade.
-- # Knockout Market-Pricing Model v1.2 — Methodology
+-# Knockout Market-Pricing Model v1.2 — Methodology
 
 ## Purpose
-Generates fair-value "to-advance" probabilities for 2026 World Cup knockout
-matches, compared against Kalshi market-implied probabilities to identify
-mispricings. Deliberately a transparent, structured model with named features
-and disclosed limitations — not a black box.
+Generates fair-value probabilities for 2026 World Cup knockout matches and
+compares them against Kalshi market-implied prices to identify mispricings.
+Two markets are priced: the **1X2 market** (home / draw / away in regulation)
+and the **to-advance market** (which team progresses, via any route). The
+to-advance market is the primary product, since it matches Kalshi's actual
+knockout contract structure. Deliberately a transparent, structured model with
+named features and disclosed limitations — not a black box.
 
-## Core model
-A regularized multinomial logistic regression (home / draw / away) fit on the
-69 graded group-stage matches.
+This is a distinct model from the frozen group-stage moneyline v0.2 (a
+hand-weighted scorecard). The knockout model is a fitted multinomial logistic
+regression — it is the calibrated-regression step the v0.2 roadmap deferred
+until a sufficient sample existed, now delivered on the 69 graded group matches.
+
+---
+
+## 1. Core model
+A regularized multinomial logistic regression outputting three probabilities
+(home win / draw / away win), fit on the 69 graded group-stage matches.
 
 - **Features:** elo_diff, gd_diff, xg_diff (net), form_diff, host.
 - **Regularization:** L2 = 0.5, selected by 5-fold cross-validated log-loss.
-- **Fitted weights (standardized home–away contrast):** elo +2.03 (dominant),
-  xg +0.77, host +0.28, form +0.18, gd −0.59 (sign reflects mild gd/xg
-  collinearity; magnitude small). xgot was tested and added no CV value once
-  elo/gd/xg were present, so it is excluded.
+- **Fitted weights (standardized home–away contrast):** elo +2.03 (dominant
+  anchor), xg +0.77, host +0.28, form +0.18, gd −0.59. The negative gd sign
+  reflects mild gd/xg collinearity (the two share scoring signal; xg absorbs it,
+  leaving gd a small artifact) — gd could be dropped with negligible log-loss
+  change. xgot was tested and added no out-of-fold value once elo/gd/xg were
+  present, so it is excluded — consistent with the group-stage finding that xgot
+  is non-persistent finishing variance.
 
-## Neutral-venue symmetry
+Why a fitted model here, not the v0.2 scorecard: the knockout stage has 69
+graded matches available to train on, clearing the 20-match threshold the v0.2
+methodology set for logistic regression. Regularization (L2) and the small,
+fixed feature set guard against overfitting the modest sample.
+
+---
+
+## 2. Neutral-venue symmetry
 Knockout matches are played at neutral sites, so the "home" designation is only
-a listing convention. The model is trained on each match **and its mirror image**
-(negated features, swapped outcome), which forces zero home-listing bias: the
-fitted intercept contrast is ~0. The only source of venue advantage is the
-explicit `host` term for Mexico, USA, and Canada.
+a listing convention, not a real venue advantage. The model is trained on each
+match **and its mirror image** (negated features, swapped outcome). This forces
+zero home-listing bias — the fitted intercept contrast is ~0. The only source
+of venue advantage is the explicit `host` term for Mexico, USA, and Canada,
+which is the correct treatment for a neutral-site tournament. This directly
+implements v1.1 patch #2 (host-nation indicator) from the retrospective.
 
-## Draw-resilience adjustment (v1.2's one feature addition)
+---
+
+## 3. Draw-resilience adjustment (the one tested feature addition)
 The group-stage retrospective identified the model's dominant failure mode:
 heavy favorites held to **draws** by defensive underdogs (not upsets — draws).
 
-This was tested before being added. Among mismatches (rating gap above median),
-underdogs with strong defenses (low blended xGA) drew **31.6%** of the time
-versus **12.5%** for weak-defense underdogs (n=35). A logistic check confirmed
-the direction (defensive-quality coefficient −0.68, the strongest term).
+This was tested before being added, not assumed. Among mismatches (rating gap
+above median), underdogs with strong defenses (low blended xGA) drew **31.6%**
+of the time versus **12.5%** for weak-defense underdogs (n=35). A logistic check
+confirmed the direction (defensive-quality coefficient −0.68, the strongest
+term). This is v1.1 patch #1 (raise draw likelihood in high-gap matches),
+grounded in measured data rather than the |elo_diff| slope originally proposed
+(which did not hold up on inspection).
 
 Implementation: P(draw) receives a modest boost, drawn from the favorite's win
 probability, scaled by (a) how far the underdog's blended xGA sits below the
@@ -674,53 +701,163 @@ field average and (b) the size of the rating gap. The boost is small (K_DEF =
 with realized tournament xGA (from the results tracker), the latter weighted
 0.40 given it is only a 3-game sample.
 
-## Advance probability
+---
+
+## 4. Temperature calibration to the market (τ = 1.35)
+Raw softmax probabilities were over-extreme in large mismatches — e.g. Sweden
+read 0.04% to beat France in 90 minutes, which is football-nonsensical (no two
+international sides are that far apart; irreducible match variance alone exceeds
+that). A temperature parameter τ divides the logits before the softmax,
+decompressing the over-confident tail.
+
+τ was **not hand-picked to hit a target.** It was calibrated to minimize squared
+deviation between the model's to-advance probabilities and **real Kalshi
+to-advance prices** across the five contracts available at calibration time
+(Côte d'Ivoire, France, Mexico, England, Belgium). The optimum was τ = 1.35.
+Fit quality:
+
+| Match | Model advance | Kalshi advance |
+|---|---|---|
+| Côte d'Ivoire | 38% | 36% |
+| France | 92% | 88% |
+| Mexico | 64% | 63% |
+| England | 86% | 88% |
+| Belgium | 54% | 59% |
+
+τ = 1.35 sits between the value group-stage log-loss preferred (~1.0) and the
+over-flattening end (~2.0): the market indicates the raw model was *mildly*
+overconfident, and 1.35 is that correction. It lifts Sweden's regulation-win
+from 0.04% to ~2% (advance ~8%) while leaving the fitted weights, symmetric fit,
+draw-resilience term, and shootout formula untouched. It is a calibration layer,
+not a refit.
+
+**Tradeoff (disclosed):** matching the market's overall sharpness means the
+model agrees with Kalshi globally by construction, so edges no longer come from
+being systematically more/less confident than the market. Edges now come from
+per-match deviations (e.g. Belgium 54% model vs 59% market) and from matches
+with no Kalshi price yet. This is the cleaner form of edge: globally calibrated,
+locally differentiated.
+
+**Calibration caveat:** τ rests on 5 market prices — enough to set one
+parameter, but a small sample. As more Kalshi contracts open, τ should be refit
+on the larger set.
+
+---
+
+## 5. Advance probability
+For the to-advance market, the draw is resolved into a winner via extra time /
+penalties:
+
+```
 P(advance) = P(win in 90) + P(draw in 90) × P(win shootout)
 P(win shootout) = clip(0.5 + (P_home − P_away) × 0.25, 0.40, 0.60)
+```
 
-The shootout shrinkage reflects penalty-kick variance and goalkeeper compression.
+The shootout term compresses toward 50/50 (bounded 40–60%), reflecting penalty
+variance and goalkeeper compression — a shootout is close to a coin flip
+regardless of regulation strength. The favorite's advantage in the advance
+number therefore comes mainly from its higher regulation-win probability, not
+from the shootout. This composes cleanly into tournament-level probabilities.
 
-## Penalty-xG sensitivity check (robustness, not production)
-Tournament xG includes penalties (~0.79 converted xG each), which on a 3-game
-sample is noisy. As a robustness check, penalties faced were stripped from
-tournament xGA and penalties won stripped from tournament xG-for, then the model
-was refit.
+---
 
-Result: the strip is directionally sensible (e.g. Egypt, which faced and saved a
-penalty, gains defensive credit and its advance probability improves), but the
-*magnitude* of its effect on the bracket exceeds what a 3-game, ~1–2-penalty
-sample justifies — it swung Netherlands–Morocco from 58/42 to 71/29 even though
-Morocco appears on neither penalty list, via refit knock-on effects.
+## 6. Sheet output columns (so sheet and methodology stay in sync)
+The knockout_model tab exposes, per match:
 
-**Decision:** the penalty adjustment is therefore reported as a sensitivity
-check, NOT used in the production number. Production uses the un-penalty-adjusted
-fit. This is a deliberate choice not to let a small-sample correction drive
-headline prices. Most-affected prices under the strip: Morocco 42%→29%,
-Ecuador 32%→42%, Egypt 63%→68% (advance). Treat these as the model's
-sensitivity band, not as alternative point estimates.
+- **model_home / model_draw / model_away (T/U/V):** the τ-calibrated 1X2
+  probabilities. Sum to exactly 100%. Computed by the model script from the
+  trusted score source (not the legacy raw-probability columns, which were
+  corrupted and have been retired).
+- **model_home_adv / model_away_adv (W/X):** to-advance probabilities from §5.
+- **model_90_pick (AI):** the most likely *regulation* result, including "Draw"
+  when the match is genuinely close (draw probability high and the two sides
+  within a small probability margin). Replicates the group-stage two-tier draw
+  logic, re-gated on probabilities rather than the old raw-score gap. Produces
+  ~5 draws across the RO32, consistent with the historical knockout draw rate.
+- **model_adv_pick (AJ):** which team the model favors to advance.
+- **upset_alert (AK):** flags how contestable the tie is, by the advance margin:
+  "UPSET LIVE" when the two advance probabilities are within ~15 points (true
+  toss-up), "WATCH" within ~30 points, blank for genuine mismatches. A display
+  triage flag — it does not modify any probability; it surfaces which favorites
+  are vulnerable so they are not all treated as locks.
 
-When non-penalty xG is collected directly (a data-pipeline task, not a scrape),
-this becomes a clean production feature rather than a sensitivity note.
+---
 
-## Known limitations (disclosed)
-1. **Penalty xG.** See sensitivity check above; production deliberately excludes
-   the penalty strip pending direct non-penalty xG collection.
-2. **Small-sample defensive term.** The draw-resilience effect rests on n=35
-   mismatch observations. Its magnitude is treated as directional, not precise.
-3. **Host factor** has few in-sample knockout cases; weight kept modest.
+## 7. Edge and signal layer (both markets)
+Edges are computed against devigged Kalshi prices for each market.
 
-## Worked example: Netherlands vs Morocco
-Old model output Morocco ~14% to advance — indefensible given Morocco's
-comparable elo and form. v1.2 outputs Morocco ~42%, essentially level with the
-Kalshi market (~40%). Notably, the correction came almost entirely from the
-elo-anchored symmetric fit, **not** the defensive term: Morocco's blended xGA
-(~1.17, dragged up by a leaky 2.03 tournament figure) earns them little
-resilience boost. The model and market agreeing here implies no edge on Morocco
-— and flags that Morocco's high xGA is a genuine vulnerability rather than the
-defensive strength their reputation suggests.
+**1X2 market:** edge_home/draw/away = model 1X2 − market 1X2 (devigged), with
+best_value / best_edge / signal as in the group-stage methodology.
 
-## Narrative
+**To-advance market:** edge_home_adv = W − market_advance_home;
+edge_away_adv = X − market_advance_away. best_value is the side with the larger
+edge; best_edge its magnitude.
+
+**Signal tiers** (same as group stage), applied to advance best_edge:
+STRONG PLAY ≥10%, PLAY ≥6%, WATCH ≥3%, PASS <3%, with a REVIEW override when the
+edge is ≥15% (a 15%+ disagreement with Kalshi more likely indicates a bad input
+or stale price than a real edge — flag for manual review, do not auto-fire
+STRONG PLAY). The group-stage BLOCK DRAW filter is not ported: the to-advance
+market has no draw outcome to block.
+
+The advance edge/signal columns compute only once devigged Kalshi advance prices
+are entered (one column pair per match). Until then they correctly return blank.
+
+---
+
+## 8. Penalty-xG sensitivity check (robustness, not production)
+Tournament xG includes penalties (~0.79 converted xG each), noisy on a 3-game
+sample. As a robustness check, penalties faced were stripped from tournament xGA
+and penalties won from tournament xG-for, then the model refit.
+
+Result: directionally sensible (e.g. Egypt, which faced and saved a penalty,
+gains defensive credit), but the magnitude of the effect on the bracket exceeds
+what a ~1–2-penalty, 3-game sample justifies — it swung Netherlands–Morocco from
+58/42 to 71/29 even though Morocco is on neither penalty list, via refit
+knock-on effects.
+
+**Decision:** reported as a sensitivity check, NOT used in production. Production
+uses the un-penalty-adjusted fit — a deliberate choice not to let a small-sample
+correction drive headline prices. Sensitivity band: Morocco 42%→29%,
+Ecuador 32%→42%, Egypt 63%→68% (advance). When non-penalty xG is collected
+directly (a data-pipeline task, not a scrape), this becomes a clean production
+feature.
+
+---
+
+## 9. Known limitations (disclosed)
+1. **Penalty xG** — production excludes the penalty strip pending direct
+   non-penalty xG collection (see §8).
+2. **Small-sample defensive term** — the draw-resilience effect rests on n=35;
+   magnitude treated as directional, not precise.
+3. **Temperature on 5 market prices** — τ=1.35 is calibrated on a small set of
+   Kalshi contracts; refit as more open.
+4. **gd coefficient** — mildly negative from gd/xg collinearity; harmless to
+   outputs, droppable with negligible log-loss change.
+5. **Host factor** — few in-sample knockout cases; weight kept modest.
+6. **New Zealand** — 3 group matches excluded from the fit (69 of 72) because NZ
+   xG was uncollected; all OFC, non-knockout, negligible effect on coefficients.
+
+---
+
+## 10. Worked example: Netherlands vs Morocco
+The pre-calibration model had output Morocco ~14% to advance — indefensible
+given Morocco's comparable elo and form. After the elo-anchored symmetric fit
+plus τ-calibration, Morocco lands ~42% advance, essentially level with the
+Kalshi market (~40%). The correction came almost entirely from the elo-anchored
+fit, **not** the defensive term: Morocco's blended xGA (~1.17, dragged up by a
+leaky 2.03 tournament figure) earns them little resilience boost. Model and
+market agreeing here implies no edge on Morocco — and flags that Morocco's high
+xGA is a genuine vulnerability rather than the defensive strength their
+reputation suggests.
+
+---
+
+## 11. Narrative
 Built it, shipped it, measured it, found the failure mode (favorites drawn by
-defensive underdogs), tested a fix against the data before adding it, and
-disclosed what the model still can't see. The Morocco model-vs-market agreement
-and the favorite-extremity in true mismatches are reported, not hidden.
+defensive underdogs), tested a fix against the data before adding it, calibrated
+the overall confidence level to the real settlement market rather than to
+intuition, and disclosed what the model still can't see. The Morocco
+model-vs-market agreement, the per-match deviations that constitute the edges,
+and the limitations are reported, not hidden. The story is diagnosis and
+disciplined correction — not a profitability claim.

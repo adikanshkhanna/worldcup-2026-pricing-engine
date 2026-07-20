@@ -1,15 +1,24 @@
 # Methodology
 
-Design decisions, formulas, and risk controls for the 2026 World Cup Pricing Engine.
+Design decisions, formulas, results, and risk controls for the 2026 World Cup Pricing Engine.
 
-| Component | Version | Tab |
-|-----------|---------|-----|
-| Match outcome (moneyline) | v0.2 (frozen) | `model_inputs_v02_FROZEN`, `model_output_FROZEN` |
-| Over/Under | v0.3 (production) | `ou_model` |
-| Over/Under (legacy reference) | v0.2 (frozen) | `ou_model_vo2_FROZEN` |
-| v0.3 situational overlay for moneyline | Experimental | `model_inputs_v03 (experimental)` |
+**Structure of this document:**
+- **Part I** — Group Stage models (moneyline v0.2, O/U v0.3) and results
+- **Part II** — Knockout Stage models (moneyline regularized logit, O/U simplified Monte Carlo) and results
+- **Part III** — Cross-tournament findings: full ROI breakdown, what changed between stages, and what we'd do differently
+
+| Component | Stage | Version | Status |
+|-----------|-------|---------|--------|
+| Moneyline | Group | v0.2 | Frozen, official |
+| Over/Under | Group | v0.3 | Frozen, official |
+| Moneyline v0.3 overlay | Group | Experimental | Not used for live signals |
+| O/U v0.2 | Group | Archived | Superseded by v0.3, preserved for comparison |
+| Moneyline | Knockout | Regularized multinomial logit | Frozen, official |
+| Over/Under | Knockout | Simplified xG-blend + Monte Carlo | Frozen, official |
 
 ---
+
+# PART I — GROUP STAGE
 
 ## 1. Project Purpose
 
@@ -30,7 +39,7 @@ The project is framed as a quantitative market-pricing model using sports event 
 | O/U v0.3 | Official launch (production) | Goal totals via asymmetric xG weighting + tactical/venue/climate modifiers + Poisson |
 | O/U v0.2 | Archived reference | Simple combined-xG Poisson; superseded by v0.3 but preserved frozen for comparison |
 
-Moneyline v0.3 overlay remains experimental because the situational factors are uncalibrated for the binary match-outcome problem. For totals, however, the same factors have stronger theoretical justification (goal-scoring is more sensitive to environmental context than win/draw outcomes are), so the v0.3 O/U was promoted to production.
+Moneyline v0.3 overlay remained experimental because the situational factors were uncalibrated for the binary match-outcome problem. For totals, the same factors had stronger theoretical justification (goal-scoring is more sensitive to environmental context than win/draw outcomes are), so the v0.3 O/U was promoted to production. In hindsight (Part III), this justification did not hold up empirically for the modifiers ultimately used.
 
 ---
 
@@ -47,7 +56,7 @@ Four team-quality differentials:
 
 #### Excluded factors
 
-- **Shots on target**: redundant with xG and goal differential. Candidate for re-inclusion after calibration confirms incremental signal.
+- **Shots on target**: redundant with xG and goal differential.
 - **Opta as separate input**: collapsed into the single team-quality anchor to avoid double-counting.
 - **Climate, altitude, host status, venue tier, tactical style**: collected and stored but excluded from v0.2 moneyline; used in v0.3 experimental overlay and in v0.3 O/U production.
 
@@ -68,8 +77,6 @@ home_strength = 1 / (1 + EXP(-raw_score))
 
 ### 3.3 Probability Split
 
-Draw probability is estimated separately rather than derived from the sigmoid:
-
 ```
 home_win_prob  = (1 - draw_prob) * home_strength
 away_win_prob  = (1 - draw_prob) * (1 - home_strength)
@@ -82,26 +89,20 @@ home_win_prob + draw_prob + away_win_prob = 100%
 draw_prob = MAX(0.18, MIN(0.35, 0.30 - ABS(elo_diff) * 0.003))
 ```
 
-In words: base draw probability of 30%, reduced by 0.3 percentage points per unit of Opta rating gap, floored at 18% (heavy mismatches) and capped at 35% (perfectly even matchups). This range is consistent with historical World Cup draw rates (~24% mean).
+Base draw probability of 30%, reduced by 0.3 percentage points per unit of Opta rating gap, floored at 18% (heavy mismatches) and capped at 35% (perfectly even matchups). Consistent with historical World Cup draw rates (~24% mean).
 
-This separation addresses a known limitation of pure sigmoid-based models, which over-allocate draw probability in heavy-mismatch matchups (see §10 Risk Controls). The heuristic is a known calibration candidate — see §16 Roadmap for the planned Poisson scoreline replacement.
+This heuristic is a known calibration candidate. **Part III confirms it was a real predictive limitation, not just a theoretical one** — see the knockout-stage draw-resilience patch, which was built directly in response to this.
 
 ---
 
-## 4. Over/Under Model (v0.3 Production)
-
-The production O/U model lives in the `ou_model` tab. The original v0.2 O/U is preserved in `ou_model_vo2_FROZEN` for reference and side-by-side evaluation.
+## 4. Over/Under Model (v0.3 Production, Group Stage)
 
 ### 4.1 xG inputs (asymmetric confederation adjustment)
 
-Each team's xG inputs are adjusted by `conf_scalar` (§6), but offensive and defensive sides use different formulas:
-
 **Offensive xG (simple discount):**
 ```
-team_xg_for_adj  = team_xg_for * team_conf_scalar
+team_xg_for_adj = team_xg_for * team_conf_scalar
 ```
-
-A CAF team's attacking output is discounted by their confederation scalar (e.g., 0.96) before being used in the model.
 
 **Defensive xG (elo-weighted blend between inflated and raw):**
 ```
@@ -109,37 +110,22 @@ team_xg_against_adj = (team_xg_against / team_conf_scalar) * (team_elo / 100)
                     + team_xg_against * (1 - team_elo / 100)
 ```
 
-Defensive xG is INFLATED (divided by conf_scalar) rather than discounted, because a weak-confederation team's xg_against vs same-pool attackers understates how leaky they'd be against UEFA-level opposition. The elo weighting blends this inflated value with the raw value — stronger teams (high Opta rating) get more confederation adjustment, weaker teams stay closer to raw, acting as empirical-Bayes shrinkage toward the confederation prior.
-
-This asymmetric treatment of offensive vs defensive xG is a deliberate design choice in v0.3.
+Defensive xG is inflated (divided by conf_scalar) rather than discounted, because a weak-confederation team's xg_against vs same-pool attackers understates how leaky they'd be against UEFA-level opposition. The elo weighting blends this inflated value with the raw value.
 
 ### 4.2 Per-team expected goals (asymmetric 60/40 weighting)
 
 ```
-home_exp_goals = (home_xg_for_adj * 0.6) + (away_xg_against_adj * 0.4)
-away_exp_goals = (away_xg_for_adj * 0.6) + (home_xg_against_adj * 0.4)
+home_exp_goals  = (home_xg_for_adj * 0.6) + (away_xg_against_adj * 0.4)
+away_exp_goals  = (away_xg_for_adj * 0.6) + (home_xg_against_adj * 0.4)
 total_exp_goals = home_exp_goals + away_exp_goals
 ```
 
-The 60/40 split reflects that attacking output is more stable across opponents than defensive output is across attackers. The v0.2 O/U used a symmetric 50/50 split with no confederation scalar (preserved in `ou_model_vo2_FROZEN` for comparison).
-
 ### 4.3 Multiplicative scalar adjustments
 
-Three modifiers are applied multiplicatively, not additively. Per-team tactical and climate modifiers are applied to each team's expected goals before combining; situational modifier is applied to the total.
-
-**Per-team tactical modifiers:**
 ```
-home_tactical_s, away_tactical_s = tactical style interaction values
-                                   reflecting how each team's primary and
-                                   secondary tactical style interacts with
-                                   the opponent's style
-```
+home_adj_xg = home_exp_goals * (1 + home_tactical_s) * (1 + home_climate_modifier)
+away_adj_xg = away_exp_goals * (1 + away_tactical_s) * (1 + away_climate_modifier)
 
-
-
-**Venue tier penalty:**
-
-```
 venue_penalty = IFS(
     venue_tier = "extreme",   -0.20,
     venue_tier = "high",      -0.15,
@@ -148,11 +134,12 @@ venue_penalty = IFS(
     venue_tier = "mild",       0,
     TRUE,                      0
 )
+
+situational_modifier      = away_tactical_s + venue_penalty
+adjusted_total_exp_goals  = (home_adj_xg + away_adj_xg) * (1 + situational_modifier)
 ```
 
-Reflects how extreme environments suppress total scoring.
-
-**Climate modifier (per team, applied at per-team xG adjustment in §4.3):**
+Climate modifier per team is a piecewise function on origin climate temperature:
 
 ```
 climate_modifier(team) = IFS(
@@ -163,50 +150,18 @@ climate_modifier(team) = IFS(
 )
 ```
 
-Applied to each team's expected goals (see §4.3 below). Captures how teams adapt differently to match conditions based on their native climate.
-
-**Combined situational modifier:**
-
-```
-situational_modifier         = away_tactical_s + venue_penalty
-adjusted_total_exp_goals     = (home_adj_xg + away_adj_xg) * (1 + situational_modifier)
-```
-
-where `venue_penalty` is the IFS lookup above on `venue_tier`. Note that knockout-stage rows show #N/A in `venue_tier` and `situational_modifier` until the bracket resolves post-group-stage; this is expected and does not affect group-stage signals.
-
-**Per-team adjusted xG (multiplicative):**
-```
-home_adj_xg = home_exp_goals * (1 + home_tactical_s) * (1 + home_climate_modifier)
-away_adj_xg = away_exp_goals * (1 + away_tactical_s) * (1 + away_climate_modifier)
-```
-
-**Match-level adjusted total:**
-```
-adjusted_total_exp_goals = (home_adj_xg + away_adj_xg) * (1 + situational_modifier)
-```
-
-This three-layer multiplicative structure ensures environmental and tactical effects scale proportionally with projected goal volume rather than imposing flat additive penalties.
+This three-layer multiplicative structure was intended to scale environmental and tactical effects proportionally with projected goal volume. **Part III's retrospective found this stacking created a systematic downward bias — see §12.**
 
 ### 4.4 Probability calculation with variable lines
-
-The O/U line for each match is read directly from Kalshi (`match_ou_line` column) — typically 2.5 but occasionally 1.5, 3.5, or 4.5 depending on the contract Kalshi offers for that match. Poisson probability is computed for the relevant line:
 
 ```
 P(under L) = sum over k=0 to floor(L) of Poisson(k; adjusted_total)
 P(over L)  = 1 - P(under L)
 ```
 
-For the standard 2.5 line: `P(under 2.5) = Poisson(0) + Poisson(1) + Poisson(2)`. For higher lines (3.5, 4.5), additional Poisson terms are summed. For lower lines (1.5), fewer terms.
-
-O/U market probabilities are devigged separately from moneyline using `kalshi_over_raw` and `kalshi_under_raw`. O/U signal thresholds match moneyline thresholds (§9).
-
-### 4.4 Why O/U uses v0.3 architecture while moneyline uses v0.2
-
-Match outcome (binary win/draw/loss) is less sensitive to environmental context than goal totals are. Situational factors (climate, altitude, venue, tactical style) have stronger theoretical justification for affecting how many goals are scored than for affecting which team wins. The decision to promote v0.3 architecture to production for O/U but not for moneyline reflects this asymmetry. Both are forward-tested live; the comparison will inform whether v0.3 situational factors should be promoted to moneyline in v1.1.
+O/U lines are read directly from Kalshi (typically 2.5, occasionally 1.5/3.5/4.5).
 
 ### 4.5 v0.2 O/U (archived reference)
-
-Preserved in `ou_model_vo2_FROZEN`. Architecture:
 
 ```
 home_exp_goals  = (home_xg_for + away_xg_against) / 2
@@ -215,22 +170,13 @@ total_exp_goals = home_exp_goals + away_exp_goals
 P(under 2.5)    = Poisson cdf at 2 with lambda = total_exp_goals
 ```
 
-No situational adjustments. Maintained for side-by-side evaluation against v0.3 during forward testing.
+No situational adjustments. Preserved for side-by-side evaluation.
 
 ---
 
 ## 5. Moneyline v0.3 Experimental Overlay
 
-A separate experimental overlay (`model_inputs_v03 (experimental)`) extends the moneyline factors with situational variables:
-- Climate mismatch
-- Altitude (team origin vs venue)
-- Venue tier
-- Host status
-- Tactical primary and secondary style matchup
-
-This overlay is NOT used for live moneyline signals. It is tracked side-by-side for research only. Promotion to production requires forward-test data showing it outperforms v0.2 on hit rate, calibration, or CLV.
-
-A future production cap would limit the situational contribution:
+Extends the moneyline factors with climate mismatch, altitude, venue tier, host status, and tactical style matchup. Not used for live signals — tracked side-by-side for research only.
 
 ```
 capped_situational_score = MAX(-0.75, MIN(0.75, situational_score))
@@ -239,8 +185,6 @@ capped_situational_score = MAX(-0.75, MIN(0.75, situational_score))
 ---
 
 ## 6. Confederation Quality Scalars
-
-A `conf_scalar` column in `team_stats` (column L) with values derived from cross-confederation average Elo:
 
 | Confederation | conf_scalar |
 |---------------|-------------|
@@ -251,64 +195,31 @@ A `conf_scalar` column in `team_stats` (column L) with values derived from cross
 | CONCACAF (hosts via Gold Cup) | 0.87 |
 | OFC fallback | 0.80 |
 
-**Active in O/U production only.** In the v0.3 O/U model, each team's per-90 xG input is multiplied by their `conf_scalar` before being combined into expected goals. This normalizes raw xG values across confederation pools at the input level. See §4.1 for the modified formulas.
+**Active in O/U production only.** Not applied to moneyline v0.2 — the differential structure partially cancels confederation effects, and F1 Opta already encodes confederation strength, so multiplying xG by `conf_scalar` would double-count. The `weak_schedule_match` flag (§7.3) is the moneyline disclosure mechanism instead.
 
-**Not applied to moneyline v0.2.** The moneyline model uses `xg_diff` directly without scalar adjustment because (a) the differential structure partially cancels confederation effects between two teams, and (b) F1 Opta already encodes confederation strength, so multiplying xG by `conf_scalar` would create double-counting. The `weak_schedule_match` flag (§10.3) handles confederation comparability transparently for moneyline.
-
-**Known concerns documented as v1.1 calibration items:**
-- The CONMEBOL value (0.88) appears inconsistent with WC-qualifier strength. Brazil, Argentina, and Uruguay rate significantly higher than 0.88 implies, suggesting the average may be skewed by including non-WC CONMEBOL nations.
-- Coefficients are uncalibrated against forward-test data; values will be re-derived from observed CLV by confederation post-tournament.
-- The asymmetric application (O/U yes, moneyline no) is a deliberate design choice but introduces structural inconsistency that should be reviewed when v0.3 moneyline overlay is calibrated.
+**Documented v1.1 calibration concern:** the CONMEBOL value (0.88) appeared inconsistent with WC-qualifier strength (Brazil, Argentina, Uruguay rate meaningfully higher).
 
 ---
 
-## 7. Market Pricing and Devigging
+## 7. Market Pricing, Devigging, Edge, and Risk Controls
 
-### 7.1 Source
-
-Kalshi event-contract prices are the primary market benchmark; Polymarket serves as a secondary reference.
-
-### 7.2 Devigging
-
-Raw Kalshi YES contract prices for home/draw/away typically sum to 102–106¢ due to spread and platform fee. They are normalized proportionally:
+### 7.1 Devigging
 
 ```
 market_home = kalshi_home_raw / (kalshi_home_raw + kalshi_draw_raw + kalshi_away_raw)
 ```
 
-(Same construction for `market_draw` and `market_away`.) Devigged probabilities sum to exactly 100%. The same normalization is applied to O/U contracts.
+Same construction for `market_draw`, `market_away`, and O/U contracts. Devigged probabilities sum to exactly 100%. This is applied before any edge calculation.
 
-This is the first step in all analysis; comparing model probabilities to raw vigged prices would systematically understate edges.
+**Worked example (Match 1, Mexico vs South Africa):** Raw Kalshi 70/21/12 (103¢, 3¢ overround) → devigged 67.96%/20.39%/11.65%. Model v0.2: 59.35%/25.53%/15.12%. Edge on Draw: +5.14pp → WATCH.
 
-**Worked example (Match 1, Mexico vs South Africa):**
-- Raw Kalshi: 70 / 21 / 12 (sum = 103¢, 3¢ overround)
-- Devigged: 67.96% / 20.39% / 11.65% (sum = 100.00%)
-- Model v0.2: 59.35% / 25.53% / 15.12%
-- Edge on Draw: +5.14pp → WATCH signal
-
-### 7.3 Timing
-
-Kalshi prices move materially before kickoff. Final signals must use the latest available prices, captured at T-1hr (see §11 Operational Workflow).
-
----
-
-## 8. Edge Calculation
+### 7.2 Edge and Signal
 
 ```
 edge_outcome = model_prob - market_prob
 best_edge    = MAX(edge_home, edge_draw, edge_away)
 best_value   = outcome corresponding to best_edge
 ```
-
-A positive edge means the model prices the outcome higher than the market; a negative edge means the model prices it lower.
-
-`best_value` can differ from `model_pick`. `model_pick` is the most likely outcome; `best_value` is the outcome with the highest model-vs-market gap. Both are tracked.
-
-Same logic applies to O/U: `ou_best_value` is over or under, whichever has the larger devigged edge.
-
----
-
-## 9. Signal Rules
 
 | Signal | Condition |
 |--------|-----------|
@@ -318,203 +229,51 @@ Same logic applies to O/U: `ou_best_value` is over or under, whichever has the l
 | PASS | `best_edge < 3%` |
 | REVIEW | `CHECK INPUTS` OR `BLOCK DRAW` filter triggered |
 
-Signal hierarchy: **REVIEW override fires first**, then STRONG PLAY → PLAY → WATCH → PASS.
+`best_value` (highest-edge outcome) and `model_pick` (most likely outcome) are tracked separately and often differ — see Part III §13 for why this distinction matters for evaluation.
 
-Same thresholds apply to moneyline and O/U. REVIEW rows require manual verification before being considered actionable.
+### 7.3 Risk Controls
 
----
+**CHECK INPUTS:** `"CHECK INPUTS" if best_edge >= 15%` — forces manual review; a 15%+ gap usually signals a stale price or bad input, rarely a genuine edge.
 
-## 10. Risk Controls
+**BLOCK DRAW:** `"BLOCK DRAW" if best_value = "Draw" AND market_draw < 15% AND ABS(raw_score) > 1.5` — addresses systematic over-flagging of draws as STRONG PLAY in heavy-favorite matchups. Blocked rows convert to REVIEW; probabilities are not modified.
 
-### 10.1 CHECK INPUTS
-
-```
-review_flag = "CHECK INPUTS" if best_edge >= 15% else ""
-```
-
-A 15%+ model-market gap is unusually large and typically indicates:
-- Stale or illiquid Kalshi price
-- Bad model input for one team (wrong xG, name mismatch, missing data)
-- Genuine model-market disagreement (rare)
-
-CHECK INPUTS does not invalidate the play — it forces manual review of underlying inputs before any action. Large edges are preserved on the dashboard rather than suppressed, to maintain transparency.
-
-Same threshold applies to O/U via `ou_review_flag`.
-
-### 10.2 BLOCK DRAW
-
-```
-draw_play_filter = "BLOCK DRAW" if (
-    best_value     = "Draw" AND
-    market_draw    < 15%    AND
-    ABS(raw_score) > 1.5
-) else ""
-```
-
-**Rationale:** the v0.2 moneyline model systematically over-flagged draws as STRONG PLAY in heavy-favorite matches (e.g., Germany, Spain, Brazil, France, Portugal vs minnows). The heuristic draw probability floor was too high relative to market prices in severe mismatch games.
-
-The filter blocks draw signals when:
-- The model is calling Draw as `best_value`
-- The market prices Draw very low (<15%)
-- The raw score indicates a heavy mismatch (|raw_score| > 1.5)
-
-Blocked draw rows are converted to REVIEW. The filter does not change probabilities — only signal classification.
-
-Draws in *balanced* matchups (low |raw_score|, market_draw > 15%) are still legitimate value candidates and not affected by the filter.
-
-### 10.3 Weak Schedule Flag (Moneyline transparency)
-
-A transparency flag for the moneyline model, not a probability correction. Surfaces matches where cross-confederation data comparability may distort moneyline signal.
-
-```
-weak_schedule_flag (per team) = 1 if team's xG source is from a materially
-                                  weaker confederation pool (AFC qualifiers,
-                                  CAF qualifiers, CONCACAF non-host qualifiers,
-                                  OFC fallback); 0 otherwise
-
-weak_schedule_match = "FLAG" if home_team.weak_schedule_flag != away_team.weak_schedule_flag,
-                              else ""
-```
-
-**Why moneyline-specific:** The O/U model handles confederation comparability directly at the input level via `conf_scalar` multiplication (§4.1, §6). The moneyline model does NOT apply `conf_scalar` to its xG inputs because doing so would double-count with F1 Opta. For moneyline, this flag is the disclosure mechanism: it identifies matches where the unadjusted `xg_diff_diff` may be distorted by pool baseline differences.
-
-**Why asymmetric (XOR) logic:** xG comparability problems arise specifically in *cross-pool* matchups — a UEFA team (stats vs UEFA opposition) playing an AFC team (stats vs AFC opposition). When two teams come from the same pool (UEFA vs UEFA, or AFC vs AFC), the differential remains internally valid even if baselines differ from other confederations. The flag therefore fires only on cross-pool matchups.
-
-This flag does not modify probabilities. Bucketing live results by `weak_schedule_match` will indicate whether moneyline systematically over- or under-predicts on cross-pool matches, informing whether `conf_scalar` should be applied to moneyline (with double-counting mitigation) in v1.1.
+**Weak Schedule Flag:** `"FLAG" if home_team.weak_schedule_flag != away_team.weak_schedule_flag` — moneyline-specific transparency flag for cross-confederation matchups, since moneyline does not apply `conf_scalar` directly.
 
 ---
 
-## 11. Data Sources
+## 8. Data Sources
 
 | Source | Use |
 |--------|-----|
 | Opta Power Rankings | Team strength anchor (`elo_diff`) |
-| Kaggle martj42 international results | Form, recent GD (`form_diff`, `gd_last5_diff`) |
-| Footystats regional qualifier data | xG per 90 by team (`xg_diff_diff`, O/U inputs) |
+| Kaggle martj42 international results | Form, recent GD |
+| Footystats regional qualifier data | xG per 90 by team |
 | Kalshi | Moneyline and O/U event-contract prices |
 | Polymarket | Secondary market reference |
 
-### xG sources by confederation
-
-- **UEFA**: European WC Qualifiers 2024–25
-- **CONMEBOL**: WC Qualifiers Sep 2024 onward (12 matches/team for sample stability)
-- **CAF**: CAF WC Qualifiers 2023–25 (preferred over AFCON 2025 for cross-team consistency)
-- **AFC**: AFC WC Qualifiers Nov 2024+
-- **CONCACAF non-hosts**: CONCACAF WC Qualifiers 2024–25
-- **CONCACAF hosts (Mexico, USA, Canada)**: Gold Cup 2025
-- **OFC (New Zealand)**: no available source; goals-based fallback
-
-### Team naming
-
-Team names are standardized across all tabs to avoid lookup failures. Examples: `USA`, `IR Iran`, `Czechia`, `Cabo Verde`, `Côte d'Ivoire`, `DR Congo`, `Turkey`.
-
-### Friendlies
-
-Friendlies are excluded from competitive form calculations where possible. Some pre-WC friendly-style competitions (FIFA Series, Kirin Cup, King's Cup) occasionally bypass the friendly filter — logged as a known limitation.
+xG sourced per confederation from the relevant regional qualifiers (UEFA European Qualifiers, CONMEBOL Qualifiers, CAF Qualifiers, AFC Qualifiers, CONCACAF Qualifiers, Gold Cup for hosts). New Zealand (OFC) has no qualifier xG source and uses a goals-based fallback — see §15.
 
 ---
 
-## 12. Operational Workflow
+## 9. Operational Workflow
 
-### 12.1 Freezing process
+Before each match, official tabs are duplicated and frozen (pasted as values) at T-1hr, before final Kalshi prices lock and before kickoff. This preserves exact pre-match outputs and prevents retroactive contamination of the forward test. `live_results_tracker` then records model/market probabilities, picks, signals, and outcomes after each match.
 
-Before each match, official tabs are duplicated and pasted as values only. Frozen tabs are named with the kickoff date suffix:
-
-- `model_inputs_v02_FROZEN_0611`
-- `model_output_FROZEN_0611`
-- `daily_odds_FROZEN_0611`
-- `ou_model_FROZEN_0611`
-
-Freezing is executed at T-1hr after final Kalshi prices are entered and before kickoff. It preserves the exact pre-match outputs and prevents retroactive formula changes or data updates from contaminating the forward test.
-
-### 12.2 Results tracking
-
-After each match, `live_results_tracker` records:
-- `model_pick` and `model_pick_hit`
-- `best_value` and `best_value_hit`
-- Signal tier
-- `weak_schedule_match` flag value
-- Frozen model and market probabilities
-- O/U signal and `ou_result`
-- `actual_outcome` (home win / draw / away win)
-- CLV (closing line value)
-
-Moneyline performance tracks `model_pick_hit` and `best_value_hit` separately. O/U performance tracks `ou_best_value_hit`.
-
-### 12.3 Forward testing
-
-Live forward-testing during the 2026 World Cup is the primary validation method. It avoids look-ahead bias and preserves real pre-match decision conditions, which is methodologically stronger than retrofitted backtests on incomplete historical inputs.
+Live forward-testing during the tournament is the primary validation method — it avoids look-ahead bias, which a retrofitted backtest cannot fully guarantee.
 
 ---
 
-## 13. Evaluation Plan
+## 10. Group Stage Results
 
-After a meaningful sample (target: 20+ matches), evaluate:
+**Sample: all 72 group stage matches (June 11 – June 27, 2026).**
 
-1. **`model_pick` accuracy** — raw hit rate for the most likely outcome.
-2. **`best_value` hit rate** — by signal tier (STRONG PLAY / PLAY / WATCH).
-3. **Calibration** — group predictions into buckets (40–50%, 50–60%, 60–70%, 70–80%, 80%+) and check whether realized hit rates match predicted probabilities.
-4. **Draw performance** — evaluated separately. Draw probability is the most fragile part of the current model.
-5. **Weak-schedule bucket performance** — `weak_schedule_match = FLAG` rows analyzed separately from non-flagged rows.
-6. **REVIEW row performance** — analyzed separately from official PLAY / STRONG PLAY.
-7. **O/U hit rate** — by signal tier; v0.3 production vs v0.2 archived for relative performance.
+*(Note: an earlier internal retrospective cited n=66. That draft was run before the final 6 group matches had concluded — a real-time analysis timing gap, not a data exclusion. All results below use the complete, final 72-match sample.)*
 
----
+### Moneyline
 
-## 14. Backtesting Plan
+`model_pick` hit rate: **41/72 (56.9%)** — above the 48.5% home-win base rate and the 33% random-pick baseline, indicating real predictive skill in outcome selection.
 
-Backtesting is a credibility supplement, not the primary validation:
-
-- Initial backtest is a 2022 World Cup sanity check: did higher model probabilities generally align with actual outcomes?
-- Backtesting evaluates `model_pick` accuracy separately from `best_value` edge performance.
-- Historical market-edge backtesting is **not** claimed because reliable historical Kalshi-equivalent prices are unavailable. Without historical market prices, only prediction quality can be backtested — not market mispricing performance.
-
----
-
-## 15. Documented Limitations
-
-- Hand-weighted scorecard model — weights not optimized; logistic regression calibration deferred until 20+ match sample exists.
-- Weights should not be aggressively re-tuned on individual match results.
-- Reliable calibration conclusions require 20+ matches.
-- xG availability varies by confederation; regional sample sizes and competition strength are not normalized. Mitigated (not corrected) by `weak_schedule_match` flag.
-- Goal differential is not fully opponent-adjusted; teams with weak qualifying schedules (e.g., Norway's UEFA group) may look artificially strong.
-- Draw probabilities are heuristic; replacement with a Poisson scoreline grid or calibrated draw classifier is a v1.1 candidate.
-- O/U v0.3 includes situational factors (tactical, venue, climate) whose individual contributions are uncalibrated. v0.2 O/U archived for side-by-side comparison.
-- `conf_scalar` is active in O/U inputs but apparent CONMEBOL undervaluation (0.88) and uncalibrated coefficients are documented concerns. Not applied to moneyline to avoid double-counting with F1 Opta.
-- Kalshi prices move before kickoff; final signals must use the latest prices.
-- REVIEW rows are not final trading recommendations.
-
----
-
-## 16. Roadmap
-
-- Logistic regression weight optimization on accumulated forward-test sample
-- Draw probability replacement (Poisson scoreline grid or calibrated draw classifier)
-- v0.3 moneyline overlay promotion to production after situational factor calibration (with capped situational score)
-- Confederation scalar activation in xG inputs, after CONMEBOL correction and F1 interaction analysis
-- Regional xG normalization across confederations
-- Opponent-adjusted goal differential
-- KO-stage O/U model recalibration (added post-group-stage once bracket is known)
-- Public results dashboard with running calibration plots and weak-schedule-bucketed performance
-
-# v0.2 Group Stage Retrospective
-
-**Tournament**: 2026 FIFA World Cup
-**Sample**: 66 group stage matches (June 11 – June 27, 2026)
-**Model version**: v0.2 (moneyline), v0.3 (O/U)
-**Author**: Adikansh Khanna, Kareem Soliman
-
----
-
-## Headline
-
-The v0.2 moneyline model correctly identified the most likely match outcome in **54.5% of 66 group stage matches** (36 hits). This compares to a 48.5% home-win base rate and a 33% random-pick baseline, suggesting the model adds modest but real predictive skill in outcome selection.
-
-The model is well-calibrated for predicted probabilities below 70% and systematically overconfident above 70%. The specific failure mode is heavy favorites being held to draws by defensive underdogs, not outright upsets.
-
----
-
-## Model accuracy by predicted probability
+### Calibration by predicted probability bucket
 
 | Predicted probability of model_pick | n | Realized hit rate | Delta |
 |---|---|---|---|
@@ -525,196 +284,71 @@ The model is well-calibrated for predicted probabilities below 70% and systemati
 | **70–80%** | **9** | **55.6%** | **-19.2%** |
 | 80%+ | 1 | 100.0% | n/a |
 
-The 0–70% range is well-calibrated. The 70–80% range is the only bucket where the model misses materially — predicted 75% hit rate, realized 56%.
+The 0–70% range is well-calibrated. The 70–80% bucket is the one clear miscalibration: predicted 75%, realized 56%.
 
-## Failure mode in the 70–80% bucket
+### Failure mode: heavy favorites drawn by defensive underdogs
 
-Of the four misses in this bucket, all were draws (not upsets):
+The 70-80% bucket miss was not driven by outright upsets — it was driven by draws. Spain vs. Cabo Verde, England vs. Ghana, Switzerland vs. Qatar, and Ecuador vs. Curaçao are representative cases: a heavy favorite failed to convert against a defensively organized underdog, resulting in a draw rather than the expected win. The v0.2 draw-probability heuristic under-weighted this risk in exactly the matchups where the underdog's defensive quality (not overall quality) made a draw more likely than the model's flat, elo-gap-only heuristic assumed.
 
-- Switzerland (71.4%) drew Qatar
-- Spain (78.8%) drew Cabo Verde
-- Ecuador (75.8%) drew Curaçao
-- England (75.4%) drew Ghana
+The model over-recommends draws generally (34.8% of picks vs. 27.3% actual draw rate), but the 70-80% bucket shows the failure is *concentrated* in high-mismatch games specifically, not spread evenly.
 
-The pattern: weaker opponents (lower confederation, lower team rating) absorb pressure, defend deep, and grind out a draw against a heavy favorite. The v0.2 model assigns these matches ~75% favorite / ~18% draw / ~7% underdog, when the empirical realization on this sample was closer to 56% favorite / 44% draw.
+### O/U (v0.3) Results
 
-This is a draw-suppression problem in the favorite-heavy range, not an upset problem.
-
-## Identified causes
-
-1. **Draw floor too low for asymmetric matchups.** The current draw formula `MAX(0.18, MIN(0.35, 0.30 - ABS(elo_diff)*0.003))` floors at 18% but reduces toward that floor as the rating gap grows. When the favorite is dominant, the model assumes the favorite simply wins — but in practice, defensive underdogs absorb that dominance and force draws.
-
-2. **No tactical/motivational variable for tournament context.** Teams already eliminated, teams playing for a tiebreaker, and teams parking the bus to preserve a result all play differently than their underlying ratings imply. The model has no awareness of this.
-
-3. **Host-nation labeling.** The moneyline applies a home_strength sigmoid regardless of whether the home_team in the fixture is actually a host nation. In 2026 with three hosts (USA/Canada/Mexico), this matters more than in prior tournaments where only one host existed.
-
-4. **No confederation prior on moneyline.** The conf_scalar is intentionally not applied to the moneyline (to avoid double-counting Opta Power Ratings). This is correct on principle but means CONMEBOL-vs-AFC matchups, where historical edge favors CONMEBOL beyond what Opta captures, are systematically misvalued.
-
-## v1.1 patches
-
-1. **Raise draw floor for high-rating-gap matches.** Counterintuitive but data-supported: when one team is heavily favored, draws become *more* likely (parking the bus succeeds), not less. Recommended change: invert the slope or introduce a U-shaped draw curve that floors at 22% even at extreme rating gaps.
-
-2. **Host-nation indicator variable.** Add `is_host` to team_stats. In matches where the host nation is labeled as away_team, transfer the home advantage to the away side or split it.
-
-3. **Confederation prior on moneyline.** Reintroduce a small confederation adjustment specifically for cross-confederation matchups, calibrated to subtract from Opta's bias rather than stack on it.
-
-4. **Shrinkage on heavy favorites.** As a pre-calibration patch independent of (1)-(3), apply a shrinkage factor to any model_pick probability above 70% to compress toward 65%. This is a band-aid pending the structural fixes above.
-
-## Risk-control validation
-
-The REVIEW signal (model disagrees with market by >15% on outcome with non-trivial draw probability) flagged 24 of 66 matches. Outcome breakdown:
-
-- Model_pick hit rate on REVIEW: 58.3% (14/24)
-- Market favorite won on REVIEW: 45.8% (11/24)
-
-Neither the model nor the market clearly outperformed on REVIEW matches, which is the expected behavior for high-uncertainty matches. The flag correctly identified matches where outcomes were genuinely hard to predict, validating its use as a "do not act" filter rather than a "model is wrong" filter.
-
-The BLOCK DRAW filter (active on 8 matches) prevented the model from recommending draws on lopsided matchups where the v0.2 draw floor would have generated false positives.
-
-The CHECK INPUTS flag (best_edge ≥ 15%) fired on 18 matches. Manual review on a subset confirmed that the largest edges clustered around host-nation matchups and CONMEBOL-vs-AFC matchups, validating the host and confederation issues identified above.
-
-## O/U (v0.3) performance
-
-O/U pick hit rate: **46.0%** (23/50). This is below coin-flip. The v0.3 model did not work in group stage and the underperformance is not explained by sample size alone — it reflects identifiable directional and structural bias.
-
-### What went wrong
+O/U pick hit rate (actionable picks only, excluding PASS/No Play): **25/55 (45.5%)** — below coin-flip.
 
 | Metric | Value |
 |---|---|
 | Tournament avg total goals | 3.10 |
-| Matches at 2.5 line | 37 of 50 |
-| Actual over rate at 2.5 | 54.1% |
-| Model picked under at 2.5 | 22 of 37 = 59.5% |
-| Over picks hit | 9/18 = 50.0% |
-| Under picks hit | 14/32 = 43.8% |
+| Actual over rate at 2.5 line | 54.1% |
+| Model picked under (of actionable picks) | 64% |
 
-Two distinct problems:
+Two distinct problems: (1) directional bias toward "under" against a tournament that leaned "over," and (2) poor pick selection even within each direction (over-picks hit ~50%, under-picks hit ~44%) — meaning the model wasn't just biased, it was also picking the wrong specific matches within its bias.
 
-1. **Directional bias toward under.** The model picked under in 64% of its actionable recommendations, against a tournament where 54% of matches actually went over. The model's central tendency for expected goals was too low.
+### Probable causes (diagnosed, tested in Part II)
 
-2. **Pick selection was poor in both directions.** Even where the model picked over, it hit at only 50%. Where it picked under, it hit at 44%. This means the model isn't just biased — it's also picking the wrong matches within each direction. A purely biased model with correct match selection would still hit close to 50% in its non-biased direction.
+1. **Climate modifier too aggressive** — subtracting up to 20% from expected goals for non-temperate-origin teams, likely over-applied given most 2026 host cities ran hot in summer.
+2. **Confederation/elo blend on xg_against compounded downward** rather than amplifying appropriately for weak-pool matchups.
+3. **Venue penalty stacking additively** with tactical and climate modifiers, compounding downward pressure beyond what physical conditions justify.
+4. **No tournament-context adjustment** (e.g., win-and-advance pressure increasing goal-scoring risk-taking) — not modeled at all.
 
-### Probable causes
-
-1. **Climate modifier too aggressive in suppressing goals.** The piecewise climate adjustment subtracts 8–20% from expected goals for non-temperate origin teams playing in adverse conditions. With most 2026 host cities in summer (US/Mexico) producing hot conditions, this modifier may have been over-applied and pushed many matches under their lines incorrectly.
-
-2. **Confederation discount on xG_against compounded with elo weighting.** The asymmetric `xg_against_adj = (xg_against/conf_scalar)*(elo/100) + xg_against*(1-elo/100)` formula was intended to model "weaker teams concede more than their raw xG_against suggests." In practice this appears to have suppressed totals further when both teams were AFC/CAF/CONCACAF, because the elo blending reduced rather than amplified the adjustment.
-
-3. **Venue penalty stacking.** The situational_modifier sums match_tactical_r and venue_penalty additively. Venue penalties range from -8% to -20%. When applied on top of tactical penalties and climate adjustments, the cumulative downward pressure on totals likely exceeded what the underlying physical conditions actually produce.
-
-4. **No tournament-context adjustment.** Group stage matches with one team needing a win to advance tend to produce more goals (more risk-taking). The model has no awareness of standings or qualification pressure.
-
-### What is salvageable
-
-The directional finding is itself a usable signal. A v1.1 baseline that simply predicts "over 2.5" on every match would have hit 54% in this sample. The v0.3 model failed to beat that null hypothesis. Until the directional and structural biases are corrected, the model is providing negative information value relative to a naive baseline.
-
-### v1.1 patches for O/U
-
-1. **Remove or sharply attenuate the climate modifier.** It is the most aggressive downward adjustment in the chain and the one with the weakest empirical support. Either remove entirely pending data, or compress the range to ±3%.
-
-2. **Replace the asymmetric xg_against blend with a simple `xg_against * (1/conf_scalar)`.** The elo-weighted version did not perform as intended and added complexity without payoff.
-
-3. **Calibrate venue_penalty against this group-stage data.** With 50+ matches across known venues, the actual goal totals per venue can be measured. Replace the hand-set penalty tiers with empirical adjustments where the sample supports it.
-
-4. **Add a baseline-comparison sanity check.** Any future O/U model should be benchmarked against "always pick over" and "always pick under" before being deployed. The v0.3 model would not have passed this check.
-
-The v0.3 architecture was overengineered for the available data. The v1.1 direction should be toward fewer adjustments calibrated against actual results, not more adjustments motivated by theory.
-
-## Caveats and limitations
-
-- **Sample size**: 66 matches is small. Bucket-level findings (especially the 70–80% miscalibration on n=9) are directional, not statistically significant.
-- **Forward-test only**: no historical Kalshi prices exist, so all market comparisons are against the contemporaneous 2026 closing lines. No backtest baseline.
-- **No control for confounding tournament dynamics**: motivation differences late in group stage (already-qualified teams, dead rubbers) are not modeled.
-- **Single tournament**: findings may not generalize to club football, prior WCs, or future cycles.
-
-## What this retrospective is good for
-
-This document is not a backtest validation or a P&L statement. It is a structured post-mortem of a structured prediction model, identifying specific failure modes from empirical evidence and proposing targeted patches with explicit causal hypotheses. The intent is to demonstrate that the model architecture is sound, the failure modes are diagnosable, and the patches are testable — not to claim the model is profitable or production-grade.
--# Knockout Market-Pricing Model v1.2 — Methodology
-
-## Purpose
-Generates fair-value probabilities for 2026 World Cup knockout matches and
-compares them against Kalshi market-implied prices to identify mispricings.
-Two markets are priced: the **1X2 market** (home / draw / away in regulation)
-and the **to-advance market** (which team progresses, via any route). The
-to-advance market is the primary product, since it matches Kalshi's actual
-knockout contract structure. Deliberately a transparent, structured model with
-named features and disclosed limitations — not a black box.
-
-This is a distinct model from the frozen group-stage moneyline v0.2 (a
-hand-weighted scorecard). The knockout model is a fitted multinomial logistic
-regression — it is the calibrated-regression step the v0.2 roadmap deferred
-until a sufficient sample existed, now delivered on the 69 graded group matches.
+A naive "always pick over" baseline would have hit 54% — beating the model. This became the explicit benchmark the knockout O/U rebuild was measured against (Part II).
 
 ---
 
-## 1. Core model
-A regularized multinomial logistic regression outputting three probabilities
-(home win / draw / away win), fit on the 69 graded group-stage matches.
+# PART II — KNOCKOUT STAGE
 
-- **Features:** elo_diff, gd_diff, xg_diff (net), form_diff, host.
-- **Regularization:** L2 = 0.5, selected by 5-fold cross-validated log-loss.
-- **Fitted weights (standardized home–away contrast):** elo +2.03 (dominant
-  anchor), xg +0.77, host +0.28, form +0.18, gd −0.59. The negative gd sign
-  reflects mild gd/xg collinearity (the two share scoring signal; xg absorbs it,
-  leaving gd a small artifact) — gd could be dropped with negligible log-loss
-  change. xgot was tested and added no out-of-fold value once elo/gd/xg were
-  present, so it is excluded — consistent with the group-stage finding that xgot
-  is non-persistent finishing variance.
+## 11. Knockout Moneyline Model
 
-Why a fitted model here, not the v0.2 scorecard: the knockout stage has 69
-graded matches available to train on, clearing the 20-match threshold the v0.2
-methodology set for logistic regression. Regularization (L2) and the small,
-fixed feature set guard against overfitting the modest sample.
+### 11.1 Purpose and market structure
 
----
+Generates fair-value probabilities for knockout matches and compares them against Kalshi prices to identify mispricings. Two markets are priced: the **1X2 market** (home/draw/away in regulation) and the **to-advance market** (which team progresses, via any route). The to-advance market is the primary product, since it matches Kalshi's actual knockout contract structure.
 
-## 2. Neutral-venue symmetry
-Knockout matches are played at neutral sites, so the "home" designation is only
-a listing convention, not a real venue advantage. The model is trained on each
-match **and its mirror image** (negated features, swapped outcome). This forces
-zero home-listing bias — the fitted intercept contrast is ~0. The only source
-of venue advantage is the explicit `host` term for Mexico, USA, and Canada,
-which is the correct treatment for a neutral-site tournament. This directly
-implements v1.1 patch #2 (host-nation indicator) from the retrospective.
+This is a distinct model from the frozen group-stage moneyline v0.2. It is a fitted regularized multinomial logistic regression — the calibrated-regression step the v0.2 roadmap explicitly deferred until a sufficient sample existed (69+ graded matches).
 
----
+### 11.2 Core model
 
-## 3. Draw-resilience adjustment (the one tested feature addition)
-The group-stage retrospective identified the model's dominant failure mode:
-heavy favorites held to **draws** by defensive underdogs (not upsets — draws).
+- **Features:** `elo_diff`, `gd_diff`, `xg_diff` (net), `form_diff`, `host`.
+- **Regularization:** L2 = 0.5, selected via 5-fold cross-validated log-loss.
+- **Fitted weights (standardized home–away contrast):** elo +2.03 (dominant), xg +0.77, host +0.28, form +0.18, gd −0.59 (mild gd/xg collinearity artifact; droppable with negligible log-loss change). xGOT was tested and added no out-of-fold value once elo/gd/xg were present — consistent with the group-stage finding that xGOT reflects non-persistent finishing variance, not a stable team quality signal.
+- **Fit against a structured-scorecard alternative:** a head-to-head comparison against the original v0.2-style weighted-scorecard architecture showed the regularized logistic regression dominating on out-of-fold log-loss (0.661 vs. 0.854). This confirms the deferred-regression roadmap item from group stage was the correct call once sample size allowed it.
 
-This was tested before being added, not assumed. Among mismatches (rating gap
-above median), underdogs with strong defenses (low blended xGA) drew **31.6%**
-of the time versus **12.5%** for weak-defense underdogs (n=35). A logistic check
-confirmed the direction (defensive-quality coefficient −0.68, the strongest
-term). This is v1.1 patch #1 (raise draw likelihood in high-gap matches),
-grounded in measured data rather than the |elo_diff| slope originally proposed
-(which did not hold up on inspection).
+The model was built and frozen using team_stats as of the close of group-stage matchday 3 — 66 of 72 group matches had final results at build time (69 of 72 once New Zealand's 3 OFC matches, excluded for missing xG, are set aside from that count). This reflects a real operational constraint, not an oversight: knockout matches begin almost immediately after the group stage ends, leaving a narrow window to rebuild and validate a new architecture. Waiting for full group-stage completion would have compressed the entire knockout model build into a single night. `team_stats_knockout` ratings (`elo_ko`, `xg_for_blend`, `xg_against_blend`) reflect team form as of that build point, which is documented here as a frozen cutoff rather than a live-updating input.
 
-Implementation: P(draw) receives a modest boost, drawn from the favorite's win
-probability, scaled by (a) how far the underdog's blended xGA sits below the
-field average and (b) the size of the rating gap. The boost is small (K_DEF =
-0.16) and uses no interaction coefficient, to avoid overfitting n=35.
+### 11.3 Neutral-venue symmetry
 
-**Blended xGA:** underdog defensive quality blends pre-tournament xg_against
-with realized tournament xGA (from the results tracker), the latter weighted
-0.40 given it is only a 3-game sample.
+Knockout matches are played at neutral sites, so "home" is a listing convention, not a real venue advantage. The model is trained on each match **and its mirror image** (negated features, swapped outcome), forcing zero home-listing bias. The only real venue advantage — for host nations Mexico, USA, and Canada — is captured by an explicit `host` term.
 
----
+### 11.4 Draw-resilience adjustment
 
-## 4. Temperature calibration to the market (τ = 1.35)
-Raw softmax probabilities were over-extreme in large mismatches — e.g. Sweden
-read 0.04% to beat France in 90 minutes, which is football-nonsensical (no two
-international sides are that far apart; irreducible match variance alone exceeds
-that). A temperature parameter τ divides the logits before the softmax,
-decompressing the over-confident tail.
+Directly built in response to the group-stage failure mode (§10): heavy favorites held to draws by defensive underdogs. Tested empirically before being added — among mismatches (rating gap above median), underdogs with strong defenses (low blended xGA) drew **31.6%** of the time vs. **12.5%** for weak-defense underdogs (n=35). A logistic check confirmed the direction (defensive-quality coefficient −0.68).
 
-τ was **not hand-picked to hit a target.** It was calibrated to minimize squared
-deviation between the model's to-advance probabilities and **real Kalshi
-to-advance prices** across the five contracts available at calibration time
-(Côte d'Ivoire, France, Mexico, England, Belgium). The optimum was τ = 1.35.
-Fit quality:
+Implementation: `P(draw)` receives a modest, bounded boost based on (a) the underdog's blended xGA relative to field average and (b) rating-gap size. Kept small (K_DEF = 0.16) with no interaction term, to avoid overfitting a 35-match sample.
+
+**Blended xGA** combines pre-tournament xg_against with realized tournament xGA (weighted 0.40, reflecting a 3-game sample).
+
+### 11.5 Temperature calibration (τ = 1.35)
+
+Raw softmax probabilities were over-extreme in large mismatches. A temperature parameter τ divides logits before the softmax. τ was calibrated (not hand-picked) to minimize squared deviation between model to-advance probabilities and real Kalshi to-advance prices across 5 contracts available at calibration time:
 
 | Match | Model advance | Kalshi advance |
 |---|---|---|
@@ -724,140 +358,212 @@ Fit quality:
 | England | 86% | 88% |
 | Belgium | 54% | 59% |
 
-τ = 1.35 sits between the value group-stage log-loss preferred (~1.0) and the
-over-flattening end (~2.0): the market indicates the raw model was *mildly*
-overconfident, and 1.35 is that correction. It lifts Sweden's regulation-win
-from 0.04% to ~2% (advance ~8%) while leaving the fitted weights, symmetric fit,
-draw-resilience term, and shootout formula untouched. It is a calibration layer,
-not a refit.
+Optimum τ = 1.35. This is a calibration layer applied on top of the fitted weights — it does not change them.
 
-**Tradeoff (disclosed):** matching the market's overall sharpness means the
-model agrees with Kalshi globally by construction, so edges no longer come from
-being systematically more/less confident than the market. Edges now come from
-per-match deviations (e.g. Belgium 54% model vs 59% market) and from matches
-with no Kalshi price yet. This is the cleaner form of edge: globally calibrated,
-locally differentiated.
+**Disclosed tradeoff:** matching the market's overall sharpness means edges no longer come from being systematically more/less confident than the market globally — they come from per-match deviations and matches without a Kalshi price yet. **Caveat:** τ rests on only 5 market prices; a small-sample calibration that should be refit as more contracts open in future work.
 
-**Calibration caveat:** τ rests on 5 market prices — enough to set one
-parameter, but a small sample. As more Kalshi contracts open, τ should be refit
-on the larger set.
-
----
-
-## 5. Advance probability
-For the to-advance market, the draw is resolved into a winner via extra time /
-penalties:
+### 11.6 Advance probability formula
 
 ```
 P(advance) = P(win in 90) + P(draw in 90) × P(win shootout)
 P(win shootout) = clip(0.5 + (P_home − P_away) × 0.25, 0.40, 0.60)
 ```
 
-The shootout term compresses toward 50/50 (bounded 40–60%), reflecting penalty
-variance and goalkeeper compression — a shootout is close to a coin flip
-regardless of regulation strength. The favorite's advantage in the advance
-number therefore comes mainly from its higher regulation-win probability, not
-from the shootout. This composes cleanly into tournament-level probabilities.
+The shootout term compresses toward 50/50, reflecting penalty variance and goalkeeper compression. The favorite's advance-probability edge comes mainly from regulation win probability, not the shootout term.
+
+### 11.7 Sheet output columns
+
+- `model_home`/`model_draw`/`model_away` — τ-calibrated 1X2 probabilities.
+- `model_home_adv`/`model_away_adv` — to-advance probabilities.
+- `model_90_pick` — most likely regulation result, including "Draw" when genuinely close.
+- `model_adv_pick` — favored team to advance.
+- `upset_alert` — "UPSET LIVE" when advance probabilities are within ~15 points, "WATCH" within ~30, blank otherwise. Display-only triage flag; does not modify probabilities.
+
+### 11.8 Edge and signal (both markets)
+
+Same signal tiers as group stage (STRONG PLAY ≥10%, PLAY ≥6%, WATCH ≥3%, PASS <3%, REVIEW override ≥15%), applied separately to 1X2 edges and to-advance edges. The group-stage BLOCK DRAW filter is not ported to the to-advance market, since that market has no draw outcome to block.
+
+### 11.9 Penalty-xG sensitivity check (disclosed, not used in production)
+
+Tournament xG includes penalties (~0.79 xG each), noisy on a 3-game sample. As a robustness check, penalty-derived xG was stripped and the model refit. Result: directionally sensible but the bracket-level magnitude (e.g., swinging Netherlands–Morocco from 58/42 to 71/29) exceeded what a 1–2-penalty sample justifies. **Decision: reported as a sensitivity check, not used in production.** This is a cost-vs-disqualifying distinction — the data doesn't yet exist in the clean form needed (a data-collection cost), not a claim that penalty-adjusted xG is invalid in principle.
+
+### 11.10 Known limitations (moneyline, knockout)
+
+1. Penalty xG excluded from production pending direct non-penalty xG collection.
+2. Draw-resilience effect rests on n=35 — directional, not statistically precise.
+3. τ=1.35 calibrated on only 5 market prices.
+4. gd coefficient mildly negative from gd/xg collinearity — harmless, droppable.
+5. Host factor has few in-sample knockout cases; weight kept modest.
+6. New Zealand's 3 group matches excluded from the 69-match training fit (xG uncollected for OFC).
 
 ---
 
-## 6. Sheet output columns (so sheet and methodology stay in sync)
-The knockout_model tab exposes, per match:
+## 12. Knockout Over/Under Model
 
-- **model_home / model_draw / model_away (T/U/V):** the τ-calibrated 1X2
-  probabilities. Sum to exactly 100%. Computed by the model script from the
-  trusted score source (not the legacy raw-probability columns, which were
-  corrupted and have been retired).
-- **model_home_adv / model_away_adv (W/X):** to-advance probabilities from §5.
-- **model_90_pick (AI):** the most likely *regulation* result, including "Draw"
-  when the match is genuinely close (draw probability high and the two sides
-  within a small probability margin). Replicates the group-stage two-tier draw
-  logic, re-gated on probabilities rather than the old raw-score gap. Produces
-  ~5 draws across the RO32, consistent with the historical knockout draw rate.
-- **model_adv_pick (AJ):** which team the model favors to advance.
-- **upset_alert (AK):** flags how contestable the tie is, by the advance margin:
-  "UPSET LIVE" when the two advance probabilities are within ~15 points (true
-  toss-up), "WATCH" within ~30 points, blank for genuine mismatches. A display
-  triage flag — it does not modify any probability; it surfaces which favorites
-  are vulnerable so they are not all treated as locks.
+### 12.1 Why this model differs from group stage
 
----
+The group-stage O/U retrospective (§10) identified that the tactical/climate/venue modifier stack was contributing noise, not signal — the modifiers were systematically negative and compounded multiplicatively into a downward bias on expected goals, without a corresponding gain in accuracy (46% hit rate, worse than a naive always-over baseline).
 
-## 7. Edge and signal layer (both markets)
-Edges are computed against devigged Kalshi prices for each market.
+**This was an intentional simplification, not a time-constrained shortcut.** The knockout O/U model drops the tactical, climate, and venue modifier layers entirely and applies the same feature-discipline standard already used on the moneyline side (where xGOT, penalty-net, and set-piece-net features were cut for failing to improve out-of-fold log-loss): if a component doesn't demonstrably improve calibration or accuracy, it is cut, regardless of how intuitive it seemed at design time.
 
-**1X2 market:** edge_home/draw/away = model 1X2 − market 1X2 (devigged), with
-best_value / best_edge / signal as in the group-stage methodology.
+### 12.2 Architecture
 
-**To-advance market:** edge_home_adv = W − market_advance_home;
-edge_away_adv = X − market_advance_away. best_value is the side with the larger
-edge; best_edge its magnitude.
+Per-team expected goals, direct xG blend with no confederation scalar or modifiers:
 
-**Signal tiers** (same as group stage), applied to advance best_edge:
-STRONG PLAY ≥10%, PLAY ≥6%, WATCH ≥3%, PASS <3%, with a REVIEW override when the
-edge is ≥15% (a 15%+ disagreement with Kalshi more likely indicates a bad input
-or stale price than a real edge — flag for manual review, do not auto-fire
-STRONG PLAY). The group-stage BLOCK DRAW filter is not ported: the to-advance
-market has no draw outcome to block.
+```
+home_base_lambda = xg_for_blend(home) * 0.6 + xg_against_blend(away) * 0.4
+away_base_lambda = xg_for_blend(away) * 0.6 + xg_against_blend(home) * 0.4
+```
 
-The advance edge/signal columns compute only once devigged Kalshi advance prices
-are entered (one column pair per match). Until then they correctly return blank.
+### 12.3 Monte Carlo simulation with parameter uncertainty
 
----
+Rather than treating the base lambda as a fixed point estimate, the model draws from a Gamma distribution around it to reflect uncertainty in the rating itself, then simulates Poisson goal-scoring:
 
-## 8. Penalty-xG sensitivity check (robustness, not production)
-Tournament xG includes penalties (~0.79 converted xG each), noisy on a 3-game
-sample. As a robustness check, penalties faced were stripped from tournament xGA
-and penalties won from tournament xG-for, then the model refit.
+- **Coefficient of variation on lambda:** 0.20 (Gamma shape/scale derived from this target CV)
+- **10,000 simulated draws per match**
+- Over/under probabilities are the empirical share of simulated totals above/below the line
 
-Result: directionally sensible (e.g. Egypt, which faced and saved a penalty,
-gains defensive credit), but the magnitude of the effect on the bracket exceeds
-what a ~1–2-penalty, 3-game sample justifies — it swung Netherlands–Morocco from
-58/42 to 71/29 even though Morocco is on neither penalty list, via refit
-knock-on effects.
+```
+k = 1 / (lambda_cv ** 2)
+home_lambda_draws = Gamma(shape=k, scale=home_base_lambda / k, size=10000)
+away_lambda_draws = Gamma(shape=k, scale=away_base_lambda / k, size=10000)
+home_goals_sim = Poisson(home_lambda_draws)
+away_goals_sim = Poisson(away_lambda_draws)
+over_prob = mean(total_goals_sim > line)
+```
 
-**Decision:** reported as a sensitivity check, NOT used in production. Production
-uses the un-penalty-adjusted fit — a deliberate choice not to let a small-sample
-correction drive headline prices. Sensitivity band: Morocco 42%→29%,
-Ecuador 32%→42%, Egypt 63%→68% (advance). When non-penalty xG is collected
-directly (a data-pipeline task, not a scrape), this becomes a clean production
-feature.
+**Validation check:** with `lambda_cv = 0`, the simulation collapses to fixed lambdas every draw, which should converge to the closed-form Poisson CDF. This sanity check is run before every batch to confirm the simulation implementation is correct, independent of whether the Gamma-uncertainty layer is switched on.
+
+### 12.4 Rationale for Monte Carlo over closed-form Poisson
+
+The closed-form Poisson CDF (used in group-stage v0.2 O/U and available here at CV=0) assumes the lambda point estimate is known with certainty. The knockout version instead treats lambda itself as uncertain — reflecting that a blended xG rating is an estimate, not a fact — and propagates that uncertainty into wider, more honest over/under probabilities. This is a different kind of rigor than adding more modifiers: it acknowledges estimation uncertainty in the inputs that are kept, rather than adding more inputs whose individual effect sizes were not empirically supported.
+
+### 12.5 Known limitations (O/U, knockout)
+
+- Lambda-CV of 0.20 is a chosen parameter, not fit to data; a natural v1.2 extension is calibrating it against realized variance in the knockout sample.
+- No confederation, venue, or climate adjustment at all — a deliberate simplification, but one that means any real venue/climate effect (e.g., a genuinely hot, humid knockout venue) is currently unmodeled rather than modeled-and-wrong. This tradeoff is disclosed, not hidden.
+- Small per-round sample sizes (8 RO32 matches, 8 RO16, 4 QF, 2 SF, 2 finals matches) limit how precisely any future recalibration can be done stage-by-stage.
 
 ---
 
-## 9. Known limitations (disclosed)
-1. **Penalty xG** — production excludes the penalty strip pending direct
-   non-penalty xG collection (see §8).
-2. **Small-sample defensive term** — the draw-resilience effect rests on n=35;
-   magnitude treated as directional, not precise.
-3. **Temperature on 5 market prices** — τ=1.35 is calibrated on a small set of
-   Kalshi contracts; refit as more open.
-4. **gd coefficient** — mildly negative from gd/xg collinearity; harmless to
-   outputs, droppable with negligible log-loss change.
-5. **Host factor** — few in-sample knockout cases; weight kept modest.
-6. **New Zealand** — 3 group matches excluded from the fit (69 of 72) because NZ
-   xG was uncollected; all OFC, non-knockout, negligible effect on coefficients.
+## 13. Knockout Stage Results
+
+**Sample: 32 knockout matches (RO32 through Final), including the Final with DraftKings-sourced odds — see §14.3 for the data-provenance note.**
+
+### Moneyline
+
+| Metric | Result |
+|---|---|
+| `model_90_pick` hit rate (regulation result) | 21/32 (65.6%) |
+| `model_adv_pick` hit rate (to-advance) | 25/32 (78.1%) |
+
+Both are meaningfully improved over the group-stage 56.9% moneyline hit rate. The to-advance market — the model's primary product and the one that actually matches Kalshi's contract structure — performed best.
+
+### Over/Under
+
+| Metric | Result |
+|---|---|
+| `model_pick` hit rate | 19/32 (59%) |
+| Edge-based pick hit rate | 13/23 (57%) |
+
+Improved from the group-stage 45.5%, consistent with the diagnosed-and-corrected modifier-noise fix in §12.
 
 ---
 
-## 10. Worked example: Netherlands vs Morocco
-The pre-calibration model had output Morocco ~14% to advance — indefensible
-given Morocco's comparable elo and form. After the elo-anchored symmetric fit
-plus τ-calibration, Morocco lands ~42% advance, essentially level with the
-Kalshi market (~40%). The correction came almost entirely from the elo-anchored
-fit, **not** the defensive term: Morocco's blended xGA (~1.17, dragged up by a
-leaky 2.03 tournament figure) earns them little resilience boost. Model and
-market agreeing here implies no edge on Morocco — and flags that Morocco's high
-xGA is a genuine vulnerability rather than the defensive strength their
-reputation suggests.
+## 14. Final Match Data Note
+
+The Final (Spain vs. Argentina, match_id 104) initially had no market odds recorded in any tracked source, creating a gap in the edge/signal columns for that match. Odds were subsequently obtained from **DraftKings** (moneyline/to-advance market) rather than Kalshi, which was used for every other match in this dataset.
+
+This is disclosed here for reproducibility: DraftKings and Kalshi are different books with different liquidity, vig structure, and price-discovery dynamics. The devigging methodology (§7.1) was applied identically to the DraftKings quote, but a small, unquantified cross-book difference should be assumed for this single match. All Final-match edge and ROI figures in this document carry this caveat; they are not perfectly apples-to-apples with the Kalshi-sourced figures elsewhere in the sample.
 
 ---
 
-## 11. Narrative
-Built it, shipped it, measured it, found the failure mode (favorites drawn by
-defensive underdogs), tested a fix against the data before adding it, calibrated
-the overall confidence level to the real settlement market rather than to
-intuition, and disclosed what the model still can't see. The Morocco
-model-vs-market agreement, the per-match deviations that constitute the edges,
-and the limitations are reported, not hidden. The story is diagnosis and
-disciplined correction — not a profitability claim.
+# PART III — CROSS-TOURNAMENT FINDINGS
+
+## 15. Full ROI Breakdown
+
+Hit rate alone does not evaluate a value-betting strategy correctly. `best_value` picks are deliberately chosen for the size of their edge (model probability − market probability), which is frequently largest on underdogs — a bet type expected to lose more often than it wins, but which should be profitable in aggregate if the edge is real, since the payout on a win is large relative to the stake.
+
+The correct evaluation metric for `best_value` is therefore **realized ROI from flat-unit staking at the devigged market price**, not hit rate. Below is the full breakdown across all four model/stage combinations. All prices used are already devigged (§7.1) — ROI figures reflect true edge capture, not an artifact of platform vig.
+
+| Model | Stage | N | Hit rate | Staked | Net P&L | ROI |
+|---|---|---|---|---|---|---|
+| Moneyline | Group Stage | 72 | 28/72 (38.9%) | 18.35u | +9.65u | **+52.6%** |
+| Moneyline | Knockout | 32 | 15/32 (46.9%) | 11.98u | +3.02u | **+25.2%** |
+| O/U | Group Stage | 55 | 25/55 (45.5%) | 26.99u | −1.99u | **−7.4%** |
+| O/U | Knockout | 31 | 16/31 (51.6%) | 15.11u | +0.89u | **+5.9%** |
+
+*(O/U figures use only actionable picks, excluding PASS/"No Play" rows, matching the tracker's own hit-rate grading. Knockout moneyline includes the Final; see §14 for the DraftKings caveat.)*
+
+### 15.1 O/U: a clean before/after
+
+The O/U comparison is the cleanest evidence of the diagnose-and-fix cycle in this project. Group-stage O/U value bets **lost money** (−7.4%) — consistent with the modifier-stack noise diagnosed in §10 corrupting both the pick and the edge estimate. After the modifiers were cut (§12), knockout O/U value bets turned modestly profitable (+5.9%). The direction of the fix, not just the model's internal accuracy metric, is what changed.
+
+### 15.2 Moneyline ROI: real, but requires an important caveat
+
+The moneyline `best_value` ROI figures are large — especially the group-stage +52.6%. Before treating this as a headline result, two checks were run:
+
+**Is it driven by a single lucky bet?** No. Removing the single largest-payout win (Spain vs. Cabo Verde draw, priced at 6.86¢) only reduces group-stage ROI from 52.6% to 47.7%. The result is broad-based, not a one-bet artifact — the same check on knockout ROI shows the Final's Spain pick contributed a proportionally typical amount (+25.2% with it, +22.7% without), not an outsized share.
+
+**Is it capturing a real edge, or printing a known bias?** This is the more important question, and the honest answer is more complicated. Reviewing the highest-payout group-stage wins shows a clear pattern: **the large majority are "Draw" picks in heavy-favorite mismatches** — Spain/Cabo Verde, Ecuador/Curaçao, Qatar/Switzerland, Portugal/DR Congo, England/Ghana, Belgium/Iran, among others. This is precisely the failure mode this project's own retrospective (§10) identified as a *miscalibration*: the model over-predicts draws in mismatches relative to actual draw frequency, and 70-80%-confidence favorites underperformed their predicted hit rate specifically because of these draws.
+
+**What this means:** the group-stage ROI figure is real (the bets were placed at these prices and did win), but it should not be read as validation that the model's draw-heavy tendency in mismatches is a *correctly calibrated edge*. It is more accurate to describe it as: a documented miscalibration happened to be directionally profitable in this specific 72-match sample, because the underdogs in question specifically held on more often than either the model's stated confidence or the market's price implied. This is a meaningfully different (and weaker) claim than "the model found a persistent, well-calibrated edge in mismatched games," and the two should not be conflated in any external-facing summary of this project.
+
+### 15.3 Sample-size caveats
+
+- Knockout moneyline ROI (n=32) is sensitive to 2–3 large-payout wins (Paraguay at 14.85¢, Norway at 29.7¢); losing either would meaningfully compress the ROI figure, though it would likely remain positive.
+- All ROI figures here are single-tournament results. No claim is made that these returns would replicate in a different sample, a different tournament, or over a longer time horizon.
+
+---
+
+## 16. What Changed Between Group Stage and Knockout Stage — Summary
+
+| Element | Group Stage | Knockout Stage | Why it changed |
+|---|---|---|---|
+| Moneyline architecture | Hand-weighted scorecard (v0.2) | Regularized multinomial logistic regression | Sufficient sample (69+ matches) existed to fit weights properly; CV comparison showed the fitted model dominating (log-loss 0.661 vs. 0.854) |
+| Draw handling | Flat heuristic on \|elo_diff\| | Empirically-tested draw-resilience term based on underdog defensive quality | Group-stage retrospective identified defensive-underdog draws as the specific, diagnosable failure mode |
+| Home advantage | Real (listed home team) | Removed via symmetric/mirrored training; explicit host term only for USA/Mexico/Canada | Knockout matches are neutral-venue; the group-stage home-field assumption no longer applies |
+| O/U architecture | Multiplicative modifier stack (conf scalar, tactical, climate, venue) | Direct xG blend + Monte Carlo parameter uncertainty | Modifiers diagnosed as adding noise, not signal (46% hit rate, below naive baseline) |
+| Confidence calibration | Uncalibrated sigmoid | τ=1.35, fit to 5 real Kalshi prices | Raw model was mildly overconfident in large mismatches |
+
+The throughline: both models were rebuilt in direct response to a specific, measured failure identified in the group-stage retrospective, not a general "let's improve things" pass. Each fix was tested against data before being adopted (the draw-resilience coefficient direction, the CV-driven architecture comparison, the temperature calibration against real prices) rather than assumed from theory.
+
+---
+
+## 17. Documented Limitations (Full List)
+
+**Group stage:**
+- Hand-weighted scorecard — weights not optimized via regression until knockout stage.
+- xG availability varies by confederation; not fully normalized (mitigated, not corrected, by `weak_schedule_match`).
+- Goal differential not opponent-adjusted.
+- Draw probability heuristic under-weighted defensive-underdog draw risk in high-mismatch games — this is the headline diagnosed failure.
+- O/U v0.3 situational factors (tactical, venue, climate) were uncalibrated and, per the retrospective, net-harmful to accuracy.
+- `conf_scalar` CONMEBOL value (0.88) may be miscalibrated relative to top CONMEBOL teams' actual strength.
+- New Zealand uses a goals-based xG fallback (no qualifier xG source).
+
+**Knockout stage:**
+- Penalty-xG sensitivity excluded from production (small-sample, large swings).
+- Draw-resilience term based on n=35.
+- τ=1.35 calibrated on 5 market prices only.
+- No confederation/venue/climate adjustment in knockout O/U (deliberate simplification, disclosed tradeoff).
+- Final match odds sourced from DraftKings, not Kalshi (§14).
+
+**Cross-cutting:**
+- All ROI figures are single-tournament, forward-tested results — not validated against a historical backtest with real historical market prices (none exist for Kalshi-equivalent contracts).
+- The group-stage moneyline ROI figure, while real, is concentrated in draw-picks that reflect a documented model miscalibration rather than a validated, well-calibrated edge (§15.2).
+
+---
+
+## 18. Roadmap / Future Work
+
+- Recalibrate `lambda_cv` in the knockout O/U model against realized tournament variance.
+- Refit τ on a larger set of Kalshi to-advance prices as more become available.
+- Investigate whether the draw-resilience coefficient generalizes to a larger out-of-tournament sample.
+- Revisit whether any venue/climate signal should be reintroduced to knockout O/U in a properly-tested (not assumed) form.
+- Correct the CONMEBOL `conf_scalar` value and re-evaluate its interaction with F1 Opta if confederation scalars are ever applied to moneyline.
+
+---
+
+## 19. Narrative Summary
+
+This project's value is in the diagnostic and iterative cycle, not a claim of market-beating performance. Two models were built, forward-tested live against real Kalshi (and, for one match, DraftKings) prices, measured, found wanting in specific and identifiable ways, rebuilt with targeted and empirically-tested fixes, and re-measured. The knockout-stage improvements in both hit rate (moneyline 56.9%→65.6%/78.1%; O/U 45.5%→59%) and O/U ROI (−7.4%→+5.9%) are the evidence that the diagnosis-and-fix cycle worked. Where a result looked unusually strong (group-stage moneyline ROI), the underlying cause was investigated rather than accepted at face value, and the honest, more complicated explanation is reported here rather than the more flattering one.

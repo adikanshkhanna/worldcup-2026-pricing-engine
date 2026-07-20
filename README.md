@@ -132,23 +132,24 @@ worldcup-2026-pricing-engine/
 ├── LICENSE
 ├── data/
 │   ├── team_stats.csv
-│   ├── team_stats_knockout.csv
-│   ├── model_inputs_v02_FROZEN.csv
-│   ├── model_outputs.csv
-│   ├── ou_model_v03.csv
-│   ├── ou_model_vo2_FROZEN.csv
-│   ├── ml_knockout_model.csv
-│   ├── ou_knockout_model.csv
-│   ├── live_results_tracker.csv
-│   └── methodology_notes.csv
+│   ├── gs_model_inputs_v02_FROZEN.csv
+│   ├── gs_model_outputs.csv
+│   ├── gs_ou_model_v03.csv
+│   ├── gs_ou_model_vo2_FROZEN.csv
+│   ├── gs_results_tracker.csv
+│   ├── WC Team Data Collection - ml_knockout_model.csv
+│   ├── WC Team Data Collection - ou_knockout_model.csv
+│   └── WC Team Data Collection - team_stats_knockout.csv
 └── notebook/
-    ├── populate_tracker.py
     ├── analysis.py
-    └── knockout_ou_simulation.py
+    ├── knockout_ml_model.py
+    └── knockout_ou_model.py
 ```
+
+*Note: `populate_tracker.py` and `methodology_notes.csv`, referenced in earlier drafts of this repo, are not part of the current file set — either merged into the files above or retired. If you're looking for tracker-population logic, it's now embedded in the write-back step of `knockout_ml_model.py` and `knockout_ou_model.py`.*
 
 ---
 
 ## 10. Performance Tracking
 
-Live forward-test results for the full 2026 tournament (group stage + knockout) are in [`data/live_results_tracker.csv`](./data/live_results_tracker.csv) and the knockout-specific model files. Full breakdown, calibration tables, and the ROI analysis discussed in §5 are in [`methodology.md`](./methodology.md).
+Live forward-test results for the full 2026 tournament (group stage + knockout) are in [`data/gs_results_tracker.csv`](./data/gs_results_tracker.csv) and the knockout-specific model files (`WC Team Data Collection - ml_knockout_model.csv`, `WC Team Data Collection - ou_knockout_model.csv`). Full breakdown, calibration tables, and the ROI analysis discussed in §5 are in [`methodology.md`](./methodology.md).

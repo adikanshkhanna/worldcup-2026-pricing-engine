@@ -1,0 +1,34 @@
+match_id,round,home_team,away_team,ou_line,sim_mean_total,model_over_prob,model_under_prob,market_over,market_under,edge_over,edge_under,model_pick,model_confidence,best_value_pick,best_edge,agree_flag,signal,total_goals_reg_time,ou_edge_pick,model_pick_hit,edge_hit
+73,RO32,South Africa,Canada,2.5,2.54,46.46%,53.54%,42.16%,57.84%,4.30%,-4.30%,under,0.5354,over,4.30%,FALSE,WATCH,1,Over (watch/0.5u),YES,NO
+74,RO32,Brazil,Japan,2.5,2.40,42.49%,57.51%,46.53%,53.47%,-4.04%,4.04%,under,0.5751,under,4.04%,TRUE,WATCH,3,Under (watch/0.5u),NO,NO
+75,RO32,Germany,Paraguay,2.5,2.47,44.29%,55.71%,56.44%,43.56%,-12.15%,12.15%,under,0.5571,under,12.15%,TRUE,STRONG PLAY,2,Under (1u),YES,YES
+76,RO32,Netherlands,Morocco,2.5,2.85,54.07%,45.93%,43.56%,56.44%,10.51%,-10.51%,over,0.5407,over,10.51%,TRUE,STRONG PLAY,2,Over (1u),NO,NO
+77,RO32,Côte d'Ivoire,Norway,2.5,2.94,56.12%,43.88%,52.48%,47.52%,3.64%,-3.64%,over,0.5612,over,3.64%,TRUE,WATCH,3,Over (watch/0.5u),YES,YES
+78,RO32,France,Sweden,3.5,2.80,30.97%,69.03%,45.54%,54.46%,-14.57%,14.57%,under,0.6903,under,14.57%,TRUE,STRONG PLAY,3,Under (1u),YES,YES
+79,RO32,Mexico,Ecuador,1.5,2.35,67.35%,32.65%,60.40%,39.60%,6.95%,-6.95%,over,0.6735,over,6.95%,TRUE,PLAY,2,Over (1u),YES,YES
+80,RO32,England,DR Congo,2.5,2.49,45.63%,54.37%,48.51%,51.49%,-2.88%,2.88%,under,0.5437,under,2.88%,TRUE,PASS,3,No Play,NO,N/A
+81,RO32,Belgium,Senegal,2.5,3.16,60.22%,39.78%,52.48%,47.52%,7.74%,-7.74%,over,0.6022,over,7.74%,TRUE,PLAY,4,Over (1u),YES,YES
+82,RO32,USA,Bosnia and Herzegovina,2.5,2.51,45.76%,54.24%,58.42%,41.58%,-12.66%,12.66%,under,0.5424,under,12.66%,TRUE,STRONG PLAY,2,Under (1u),YES,YES
+83,RO32,Spain,Austria,2.5,2.82,53.25%,46.75%,57.43%,42.57%,-4.18%,4.18%,over,0.5325,under,4.18%,FALSE,WATCH,3,Under (watch/0.5u),YES,NO
+84,RO32,Portugal,Croatia,2.5,2.84,52.75%,47.25%,54.46%,45.54%,-1.71%,1.71%,over,0.5275,under,1.71%,FALSE,PASS,3,No Play,YES,N/A
+85,RO32,Switzerland,Algeria,2.5,2.59,47.29%,52.71%,44.55%,55.45%,2.74%,-2.74%,under,0.5271,over,2.74%,FALSE,PASS,2,No Play,YES,N/A
+86,RO32,Australia,Egypt,1.5,2.13,62.64%,37.36%,60.40%,39.60%,2.24%,-2.24%,over,0.6264,over,2.24%,TRUE,PASS,2,No Play,YES,N/A
+87,RO32,Argentina,Cabo Verde,2.5,2.38,42.36%,57.64%,59.41%,40.59%,-17.05%,17.05%,under,0.5764,under,17.05%,TRUE,REVIEW,2,Under (1u),YES,YES
+88,RO32,Colombia,Ghana,2.5,2.14,35.85%,64.15%,45.54%,54.46%,-9.69%,9.69%,under,0.6415,under,9.69%,TRUE,PLAY,1,Under (1u),YES,YES
+89,RO16,Canada,Morocco,2.5,2.98,56.74%,43.26%,42.57%,57.43%,14.17%,-14.17%,over,0.5674,over,14.17%,TRUE,STRONG PLAY,3,Over (1u),YES,YES
+90,RO16,Paraguay,France,2.5,2.49,44.86%,55.14%,58.42%,41.58%,-13.56%,13.56%,under,0.5514,under,13.56%,TRUE,STRONG PLAY,1,Under (1u),YES,YES
+91,RO16,Brazil,Norway,2.5,3.09,58.82%,41.18%,56.44%,43.56%,2.38%,-2.38%,over,0.5882,over,2.38%,TRUE,PASS,3,No Play,YES,N/A
+92,RO16,Mexico,England,2.5,2.54,46.28%,53.72%,39.60%,60.40%,6.68%,-6.68%,under,0.5372,over,6.68%,FALSE,PLAY,5,Over (1u),NO,YES
+93,RO16,Portugal,Spain,2.5,2.89,54.37%,45.63%,53.47%,46.53%,0.90%,-0.90%,over,0.5437,over,0.90%,TRUE,PASS,1,No Play,NO,N/A
+94,RO16,USA,Belgium,2.5,3.07,58.87%,41.13%,57.43%,42.57%,1.44%,-1.44%,over,0.5887,over,1.44%,TRUE,PASS,5,No Play,YES,N/A
+95,RO16,Argentina,Egypt,2.5,2.52,46.41%,53.59%,48.51%,51.49%,-2.10%,2.10%,under,0.5359,under,2.10%,TRUE,PASS,5,No Play,NO,N/A
+96,RO16,Switzerland,Colombia,2.5,2.71,50.20%,49.80%,40.59%,59.41%,9.61%,-9.61%,over,0.502,over,9.61%,TRUE,PLAY,0,Over (1u),NO,NO
+97,QF,France,Morocco,2.5,3.0573,58.31%,41.69%,47.52%,52.48%,10.79%,-10.79%,over,0.5831,over,10.79%,TRUE,STRONG PLAY,2,Over (1u),NO,NO
+98,QF,Spain,Belgium,2.5,3.1536,60.62%,39.38%,53.47%,46.53%,7.15%,-7.15%,over,0.6062,over,7.15%,TRUE,PLAY,3,Over (1u),YES,YES
+99,QF,Norway,England,2.5,3.2407,62.55%,37.45%,55.45%,44.55%,7.10%,-7.10%,over,0.6255,over,7.10%,TRUE,PLAY,2,Over (1u),NO,NO
+100,QF,Argentina,Switzerland,2.5,2.7163,50.56%,49.44%,41.58%,58.42%,8.98%,-8.98%,over,0.5056,over,8.98%,TRUE,PLAY,2,Over (1u),NO,NO
+101,SF,France,Spain,2.5,3.05,58.72%,41.28%,51.49%,48.51%,7.23%,-7.23%,over,0.5872,over,7.23%,TRUE,PLAY,2,Over (1u),NO,NO
+102,SF,England,Argentina,2.5,2.7601,51.67%,48.33%,39.60%,60.40%,12.07%,-12.07%,over,0.5167,over,12.07%,TRUE,STRONG PLAY,3,Over (1u),YES,YES
+103,3rd Place,France,England,3.5,3.104,37.49%,62.51%,44.55%,55.45%,-7.06%,7.06%,under,0.6251,under,7.06%,TRUE,PLAY,10,Under (1u),NO,NO
+104,Final,Spain,Argentina,2.5,2.7176,50.69%,49.31%,42.16%,57.84%,8.53%,-8.53%,over,0.5069,over,8.53%,TRUE,PLAY,1,Over (1u),NO,NO
+,,,,,,,,,,,,,,,,,,,O/U Hit Rate:,19/32 (59%),13/23 (57%)

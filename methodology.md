@@ -7,14 +7,15 @@ Design decisions, formulas, results, and risk controls for the 2026 World Cup Pr
 - **Part II** — Knockout Stage models (moneyline regularized logit, O/U simplified Monte Carlo) and results
 - **Part III** — Cross-tournament findings: full ROI breakdown, what changed between stages, and what we'd do differently
 
-| Component | Stage | Version | Status |
-|-----------|-------|---------|--------|
-| Moneyline | Group | v0.2 | Frozen, official |
-| Over/Under | Group | v0.3 | Frozen, official |
-| Moneyline v0.3 overlay | Group | Experimental | Not used for live signals |
-| O/U v0.2 | Group | Archived | Superseded by v0.3, preserved for comparison |
-| Moneyline | Knockout | Regularized multinomial logit | Frozen, official |
-| Over/Under | Knockout | Simplified xG-blend + Monte Carlo | Frozen, official |
+| Component | Stage | Version | Status | Data / Code |
+|-----------|-------|---------|--------|-------------|
+| Moneyline | Group | v0.2 | Frozen, official | `data/gs_model_inputs_v02_FROZEN.csv`, `data/gs_model_outputs.csv` |
+| Over/Under | Group | v0.3 | Frozen, official | `data/gs_ou_model_v03.csv` |
+| Moneyline v0.3 overlay | Group | Experimental | Not used for live signals | — |
+| O/U v0.2 | Group | Archived | Superseded by v0.3, preserved for comparison | `data/gs_ou_model_vo2_FROZEN.csv` |
+| Moneyline | Knockout | Regularized multinomial logit | Frozen, official | `data/WC Team Data Collection - ml_knockout_model.csv`, `notebook/knockout_ml_model.py` |
+| Over/Under | Knockout | Simplified xG-blend + Monte Carlo | Frozen, official | `data/WC Team Data Collection - ou_knockout_model.csv`, `notebook/knockout_ou_model.py` |
+| Results tracker (all stages) | Both | — | Live-updated | `data/gs_results_tracker.csv` |
 
 ---
 
